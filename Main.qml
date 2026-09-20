@@ -40,6 +40,7 @@ ApplicationWindow {
     property real drawY: 0
     property real drawWidth: 0
     property real drawHeight: 0
+    readonly property string selectedType: selected>=0 && selected<layers.count ? layers.get(selected).type : ""
 
     function value(role, fallback) {
         if (selected < 0 || selected >= layers.count) return fallback
@@ -95,7 +96,9 @@ ApplicationWindow {
         var n = nextId++
         var o = {shapeId:n, type:kind, name:"Rectangle", px:x, py:y,
             sw:width, sh:height, fillColor:"#6c5ce7", strokeColor:"#ffffff", strokeSize:0,
-            corner:16, cornerTL:16, cornerTR:16, cornerBL:16, cornerBR:16, alpha:1, shown:true, locked:false, copy:""}
+            corner:16, cornerTL:16, cornerTR:16, cornerBL:16, cornerBR:16,
+            fontSize:16, fontFamily:"Arial", fontWeight:Font.Normal, letterSpacing:0, lineHeight:20, textAlign:Text.AlignLeft,
+            alpha:1, shown:true, locked:false, copy:""}
         if (kind === "ellipse") { o.name="Ellipse"; o.fillColor="#ff6b9d"; o.corner=Math.min(width,height)/2;o.cornerTL=o.corner;o.cornerTR=o.corner;o.cornerBL=o.corner;o.cornerBR=o.corner }
         else if (kind === "text") { o.name="Heading"; o.fillColor="#18171d"; o.copy="New headline"; o.corner=0;o.cornerTL=0;o.cornerTR=0;o.cornerBL=0;o.cornerBR=0 }
         else if (kind === "frame") { o.name="Frame "+n; o.fillColor="#ffffff"; o.corner=12;o.cornerTL=12;o.cornerTR=12;o.cornerBL=12;o.cornerBR=12 }
@@ -132,7 +135,9 @@ ApplicationWindow {
         recordHistory()
         var s=layers.get(selected)
         layers.append({shapeId:nextId++,type:s.type,name:s.name+" copy",px:s.px+18,py:s.py+18,sw:s.sw,sh:s.sh,
-            fillColor:s.fillColor,strokeColor:s.strokeColor,strokeSize:s.strokeSize,corner:s.corner,cornerTL:s.cornerTL,cornerTR:s.cornerTR,cornerBL:s.cornerBL,cornerBR:s.cornerBR,alpha:s.alpha,shown:s.shown,locked:false,copy:s.copy})
+            fillColor:s.fillColor,strokeColor:s.strokeColor,strokeSize:s.strokeSize,corner:s.corner,cornerTL:s.cornerTL,cornerTR:s.cornerTR,cornerBL:s.cornerBL,cornerBR:s.cornerBR,
+            fontSize:s.fontSize,fontFamily:s.fontFamily,fontWeight:s.fontWeight,letterSpacing:s.letterSpacing,lineHeight:s.lineHeight,textAlign:s.textAlign,
+            alpha:s.alpha,shown:s.shown,locked:false,copy:s.copy})
         selectOnly(layers.count-1)
     }
     function remove() {
@@ -147,6 +152,9 @@ ApplicationWindow {
             fillColor:s.fillColor,strokeColor:s.strokeColor,strokeSize:s.strokeSize,corner:s.corner,
             cornerTL:s.cornerTL===undefined?s.corner:s.cornerTL,cornerTR:s.cornerTR===undefined?s.corner:s.cornerTR,
             cornerBL:s.cornerBL===undefined?s.corner:s.cornerBL,cornerBR:s.cornerBR===undefined?s.corner:s.cornerBR,
+            fontSize:s.fontSize===undefined?16:s.fontSize,fontFamily:s.fontFamily===undefined?"Arial":s.fontFamily,
+            fontWeight:s.fontWeight===undefined?Font.Normal:s.fontWeight,letterSpacing:s.letterSpacing===undefined?0:s.letterSpacing,
+            lineHeight:s.lineHeight===undefined?20:s.lineHeight,textAlign:s.textAlign===undefined?Text.AlignLeft:s.textAlign,
             alpha:s.alpha,shown:s.shown,locked:s.locked,copy:s.copy}
     }
     function snapshotLayers() {
@@ -231,8 +239,8 @@ ApplicationWindow {
 
     Component.onCompleted: {
         pageDocuments=[snapshotLayers(),[
-            {shapeId:nextId++,type:"rect",name:"Button component",px:230,py:190,sw:220,sh:56,fillColor:"#6c5ce7",strokeColor:"#ffffff",strokeSize:0,corner:14,cornerTL:14,cornerTR:14,cornerBL:14,cornerBR:14,alpha:1,shown:true,locked:false,copy:""},
-            {shapeId:nextId++,type:"text",name:"Button label",px:278,py:203,sw:130,sh:30,fillColor:"#ffffff",strokeColor:"#000000",strokeSize:0,corner:0,cornerTL:0,cornerTR:0,cornerBL:0,cornerBR:0,alpha:1,shown:true,locked:false,copy:"Primary button"}
+            {shapeId:nextId++,type:"rect",name:"Button component",px:230,py:190,sw:220,sh:56,fillColor:"#6c5ce7",strokeColor:"#ffffff",strokeSize:0,corner:14,cornerTL:14,cornerTR:14,cornerBL:14,cornerBR:14,fontSize:16,fontFamily:"Arial",fontWeight:400,letterSpacing:0,lineHeight:20,textAlign:1,alpha:1,shown:true,locked:false,copy:""},
+            {shapeId:nextId++,type:"text",name:"Button label",px:278,py:203,sw:130,sh:30,fillColor:"#ffffff",strokeColor:"#000000",strokeSize:0,corner:0,cornerTL:0,cornerTR:0,cornerBL:0,cornerBR:0,fontSize:14,fontFamily:"Arial",fontWeight:600,letterSpacing:0,lineHeight:18,textAlign:1,alpha:1,shown:true,locked:false,copy:"Primary button"}
         ]]
         pageUndoStacks=[[],[]]
         pageRedoStacks=[[],[]]
@@ -254,13 +262,13 @@ ApplicationWindow {
 
     ListModel {
         id: layers
-        ListElement { shapeId:1; type:"rect"; name:"Primary card"; px:126; py:108; sw:370; sh:250; fillColor:"#ffffff"; strokeColor:"#e9e8ef"; strokeSize:1; corner:24; cornerTL:24; cornerTR:24; cornerBL:24; cornerBR:24; alpha:1; shown:true; locked:false; copy:"" }
-        ListElement { shapeId:2; type:"text"; name:"Design freely"; px:164; py:146; sw:290; sh:56; fillColor:"#18171d"; strokeColor:"#000000"; strokeSize:0; corner:0; cornerTL:0; cornerTR:0; cornerBL:0; cornerBR:0; alpha:1; shown:true; locked:false; copy:"Design freely" }
-        ListElement { shapeId:3; type:"text"; name:"Subtitle"; px:165; py:214; sw:280; sh:46; fillColor:"#777681"; strokeColor:"#000000"; strokeSize:0; corner:0; cornerTL:0; cornerTR:0; cornerBL:0; cornerBR:0; alpha:1; shown:true; locked:false; copy:"Create interfaces that feel alive." }
-        ListElement { shapeId:4; type:"rect"; name:"Action button"; px:165; py:286; sw:142; sh:44; fillColor:"#6c5ce7"; strokeColor:"#000000"; strokeSize:0; corner:12; cornerTL:12; cornerTR:12; cornerBL:12; cornerBR:12; alpha:1; shown:true; locked:false; copy:"" }
-        ListElement { shapeId:5; type:"text"; name:"Button label"; px:186; py:297; sw:108; sh:25; fillColor:"#ffffff"; strokeColor:"#000000"; strokeSize:0; corner:0; cornerTL:0; cornerTR:0; cornerBL:0; cornerBR:0; alpha:1; shown:true; locked:false; copy:"Get started  →" }
-        ListElement { shapeId:6; type:"ellipse"; name:"Orb"; px:560; py:140; sw:224; sh:224; fillColor:"#fd79a8"; strokeColor:"#ffffff"; strokeSize:0; corner:112; cornerTL:112; cornerTR:112; cornerBL:112; cornerBR:112; alpha:.92; shown:true; locked:false; copy:"" }
-        ListElement { shapeId:7; type:"ellipse"; name:"Orb highlight"; px:612; py:178; sw:78; sh:78; fillColor:"#ffd6e6"; strokeColor:"#ffffff"; strokeSize:0; corner:39; cornerTL:39; cornerTR:39; cornerBL:39; cornerBR:39; alpha:.78; shown:true; locked:false; copy:"" }
+        ListElement { shapeId:1; type:"rect"; name:"Primary card"; px:126; py:108; sw:370; sh:250; fillColor:"#ffffff"; strokeColor:"#e9e8ef"; strokeSize:1; corner:24; cornerTL:24; cornerTR:24; cornerBL:24; cornerBR:24; fontSize:16; fontFamily:"Arial"; fontWeight:400; letterSpacing:0; lineHeight:20; textAlign:1; alpha:1; shown:true; locked:false; copy:"" }
+        ListElement { shapeId:2; type:"text"; name:"Design freely"; px:164; py:146; sw:290; sh:56; fillColor:"#18171d"; strokeColor:"#000000"; strokeSize:0; corner:0; cornerTL:0; cornerTR:0; cornerBL:0; cornerBR:0; fontSize:36; fontFamily:"Arial"; fontWeight:700; letterSpacing:0; lineHeight:44; textAlign:1; alpha:1; shown:true; locked:false; copy:"Design freely" }
+        ListElement { shapeId:3; type:"text"; name:"Subtitle"; px:165; py:214; sw:280; sh:46; fillColor:"#777681"; strokeColor:"#000000"; strokeSize:0; corner:0; cornerTL:0; cornerTR:0; cornerBL:0; cornerBR:0; fontSize:16; fontFamily:"Arial"; fontWeight:400; letterSpacing:0; lineHeight:22; textAlign:1; alpha:1; shown:true; locked:false; copy:"Create interfaces that feel alive." }
+        ListElement { shapeId:4; type:"rect"; name:"Action button"; px:165; py:286; sw:142; sh:44; fillColor:"#6c5ce7"; strokeColor:"#000000"; strokeSize:0; corner:12; cornerTL:12; cornerTR:12; cornerBL:12; cornerBR:12; fontSize:16; fontFamily:"Arial"; fontWeight:400; letterSpacing:0; lineHeight:20; textAlign:1; alpha:1; shown:true; locked:false; copy:"" }
+        ListElement { shapeId:5; type:"text"; name:"Button label"; px:186; py:297; sw:108; sh:25; fillColor:"#ffffff"; strokeColor:"#000000"; strokeSize:0; corner:0; cornerTL:0; cornerTR:0; cornerBL:0; cornerBR:0; fontSize:14; fontFamily:"Arial"; fontWeight:600; letterSpacing:0; lineHeight:18; textAlign:1; alpha:1; shown:true; locked:false; copy:"Get started  →" }
+        ListElement { shapeId:6; type:"ellipse"; name:"Orb"; px:560; py:140; sw:224; sh:224; fillColor:"#fd79a8"; strokeColor:"#ffffff"; strokeSize:0; corner:112; cornerTL:112; cornerTR:112; cornerBL:112; cornerBR:112; fontSize:16; fontFamily:"Arial"; fontWeight:400; letterSpacing:0; lineHeight:20; textAlign:1; alpha:.92; shown:true; locked:false; copy:"" }
+        ListElement { shapeId:7; type:"ellipse"; name:"Orb highlight"; px:612; py:178; sw:78; sh:78; fillColor:"#ffd6e6"; strokeColor:"#ffffff"; strokeSize:0; corner:39; cornerTL:39; cornerTR:39; cornerBL:39; cornerBR:39; fontSize:16; fontFamily:"Arial"; fontWeight:400; letterSpacing:0; lineHeight:20; textAlign:1; alpha:.78; shown:true; locked:false; copy:"" }
     }
     ListModel {
         id: pages
@@ -395,12 +403,28 @@ ApplicationWindow {
                 }
                 Text{text:pages.get(currentPage).pageName;color:"#aaa9b0";font.pixelSize:11;x:2;y:-24}
                 Repeater{model:layers;delegate:Item{
-                    id:item;required property int index;required property string type;required property string fillColor;required property string strokeColor;required property real strokeSize;required property real corner;required property real cornerTL;required property real cornerTR;required property real cornerBL;required property real cornerBR;required property real alpha;required property bool shown;required property bool locked;required property string copy;required property real px;required property real py;required property real sw;required property real sh
+                    id:item;required property int index;required property string type;required property string fillColor;required property string strokeColor;required property real strokeSize;required property real corner;required property real cornerTL;required property real cornerTR;required property real cornerBL;required property real cornerBR;required property real fontSize;required property string fontFamily;required property int fontWeight;required property real letterSpacing;required property real lineHeight;required property int textAlign;required property real alpha;required property bool shown;required property bool locked;required property string copy;required property real px;required property real py;required property real sw;required property real sh
+                    property bool inlineEditing:false
+                    property var inlineHistoryState:null
+                    property string inlineOriginalText:""
+                    function beginInlineEditing(){
+                        if(type!=="text" || locked)return
+                        if(!isSelected(index))selectOnly(index)
+                        inlineHistoryState=snapshotState();inlineOriginalText=copy;inlineEditing=true
+                        inlineEditor.text=copy;inlineEditor.forceActiveFocus();inlineEditor.selectAll()
+                    }
+                    function finishInlineEditing(cancel){
+                        if(!inlineEditing)return
+                        if(cancel)layers.setProperty(index,"copy",inlineOriginalText)
+                        else if(inlineEditor.text!==inlineOriginalText&&inlineHistoryState)pushUndoState(inlineHistoryState)
+                        inlineHistoryState=null;inlineEditor.focus=false;inlineEditing=false
+                    }
+                    Connections{target:win;function onSelectionChanged(){if(item.inlineEditing&&!win.isSelected(item.index))item.finishInlineEditing(false)}}
                     x:px*zoom;y:py*zoom;width:sw*zoom;height:sh*zoom;visible:shown;opacity:alpha;z:index
                     Rectangle{anchors.fill:parent;color:item.type==="text"?"transparent":item.fillColor;border.color:item.strokeSize>0?item.strokeColor:"transparent";border.width:item.strokeSize*zoom;radius:item.type==="ellipse"?Math.min(width,height)/2:(item.type==="frame"?item.corner*zoom:0);topLeftRadius:item.type==="rect"?item.cornerTL*zoom:radius;topRightRadius:item.type==="rect"?item.cornerTR*zoom:radius;bottomLeftRadius:item.type==="rect"?item.cornerBL*zoom:radius;bottomRightRadius:item.type==="rect"?item.cornerBR*zoom:radius}
-                    Text{visible:item.type==="text";anchors.fill:parent;text:item.copy;color:item.fillColor;font.pixelSize:(item.copy==="Design freely"?36:(item.copy==="Get started  →"?14:16))*zoom;font.weight:item.copy==="Design freely"?Font.Bold:(item.copy==="Get started  →"?Font.DemiBold:Font.Normal);verticalAlignment:Text.AlignVCenter;wrapMode:Text.Wrap}
+                    Text{visible:item.type==="text"&&!item.inlineEditing;anchors.fill:parent;text:item.copy;color:item.fillColor;font.family:item.fontFamily;font.pixelSize:item.fontSize*zoom;font.weight:item.fontWeight;font.letterSpacing:item.letterSpacing*zoom;lineHeight:item.lineHeight*zoom;lineHeightMode:Text.FixedHeight;horizontalAlignment:item.textAlign;verticalAlignment:Text.AlignVCenter;wrapMode:Text.Wrap;style:item.strokeSize>0?Text.Outline:Text.Normal;styleColor:item.strokeColor}
                     MouseArea{
-                        anchors.fill:parent;enabled:!item.locked;hoverEnabled:true
+                        anchors.fill:parent;enabled:!item.locked&&!item.inlineEditing;hoverEnabled:true
                         cursorShape:tool==="select"?Qt.ArrowCursor:Qt.CrossCursor
                         property real dragStartX:0
                         property real dragStartY:0
@@ -436,6 +460,17 @@ ApplicationWindow {
                             }
                         }
                         onReleased:{if(dragChanged&&dragHistoryState)pushUndoState(dragHistoryState);dragOrigins=[];dragHistoryState=null;dragChanged=false}
+                        onDoubleClicked:function(mouse){if(tool==="select"&&item.type==="text"){mouse.accepted=true;item.beginInlineEditing()}}
+                    }
+                    TextEdit{
+                        id:inlineEditor;visible:item.inlineEditing;anchors.fill:parent;z:25;clip:true
+                        color:item.fillColor;selectionColor:win.accent;selectedTextColor:"white"
+                        font.family:item.fontFamily;font.pixelSize:item.fontSize*zoom;font.weight:item.fontWeight;font.letterSpacing:item.letterSpacing*zoom
+                        horizontalAlignment:item.textAlign;verticalAlignment:Text.AlignVCenter;wrapMode:TextEdit.Wrap
+                        onTextChanged:{if(item.inlineEditing&&item.index>=0&&item.index<layers.count)layers.setProperty(item.index,"copy",text)}
+                        onActiveFocusChanged:{if(item.inlineEditing&&!activeFocus)item.finishInlineEditing(false)}
+                        Keys.onEscapePressed:function(event){item.finishInlineEditing(true);event.accepted=true}
+                        Keys.onPressed:function(event){if((event.modifiers&Qt.ControlModifier)&&(event.key===Qt.Key_Return||event.key===Qt.Key_Enter)){item.finishInlineEditing(false);event.accepted=true}}
                     }
                     Rectangle{visible:isSelected(item.index);anchors.fill:parent;color:"transparent";border.color:"#6657e8";border.width:1;z:20
                         Repeater{model:[{xx:-3,yy:-3},{xx:item.width-3,yy:-3},{xx:-3,yy:item.height-3},{xx:item.width-3,yy:item.height-3}];delegate:Rectangle{required property var modelData;x:modelData.xx;y:modelData.yy;width:7;height:7;radius:2;color:"white";border.color:"#6657e8"}}
@@ -505,14 +540,48 @@ ApplicationWindow {
                     RowLayout{Layout.fillWidth:true;Layout.preferredHeight:46;Layout.leftMargin:16;Layout.rightMargin:10
                         Text{text:"Design";color:"white";font.pixelSize:12;font.weight:Font.DemiBold}Text{text:"Prototype";color:win.muted;font.pixelSize:12;Layout.leftMargin:16}Item{Layout.fillWidth:true}TinyButton{glyph:"›";onClicked:rightOpen=false}}
                     Divider{Layout.fillWidth:true}
-                    Section{heading:"Position"
+                    Text{visible:selected<0;text:"Select a layer to edit its properties";color:win.muted;font.pixelSize:11;wrapMode:Text.Wrap;Layout.fillWidth:true;Layout.margins:16}
+                    Section{heading:"Position";visible:selected>=0
                         GridLayout{columns:2;columnSpacing:8;rowSpacing:8;Layout.fillWidth:true
                             NumBox{label:"X";number:value("px",0);onEdited:function(v){setValue("px",v)}}NumBox{label:"Y";number:value("py",0);onEdited:function(v){setValue("py",v)}}
                             NumBox{label:"W";number:value("sw",0);onEdited:function(v){setValue("sw",Math.max(1,v))}}NumBox{label:"H";number:value("sh",0);onEdited:function(v){setValue("sh",Math.max(1,v))}}
                         }
                     }
-                    Divider{Layout.fillWidth:true}
-                    Section{heading:"Appearance"
+                    Divider{Layout.fillWidth:true;visible:selected>=0}
+                    Section{heading:"Text";visible:selectedType==="text"
+                        TextField{
+                            property var editHistoryState:null
+                            property string originalText:""
+                            Layout.fillWidth:true;implicitHeight:34;text:value("copy","");placeholderText:"Text";color:"#dedfe3";font.pixelSize:11;selectByMouse:true
+                            background:Rectangle{color:"#232429";border.color:parent.activeFocus?win.accent:"#303238";radius:7}
+                            onActiveFocusChanged:{
+                                if(activeFocus){editHistoryState=snapshotState();originalText=text}
+                                else if(editHistoryState){
+                                    if(text!==originalText)pushUndoState(editHistoryState)
+                                    editHistoryState=null
+                                }
+                            }
+                            onTextEdited:{if(selected>=0&&selected<layers.count)layers.setProperty(selected,"copy",text)}
+                            onAccepted:focus=false
+                        }
+                        RowLayout{Layout.fillWidth:true;spacing:8
+                            TextField{Layout.fillWidth:true;implicitHeight:32;text:value("fontFamily","Arial");placeholderText:"Font family";color:"#dedfe3";font.pixelSize:11;selectByMouse:true;background:Rectangle{color:"#232429";border.color:parent.activeFocus?win.accent:"#303238";radius:7}onEditingFinished:setValue("fontFamily",text)}
+                            NumBox{label:"S";number:value("fontSize",16);Layout.preferredWidth:76;onEdited:function(v){setValue("fontSize",Math.max(1,v))}}
+                        }
+                        RowLayout{Layout.fillWidth:true;spacing:8
+                            ComboBox{id:weightBox;Layout.fillWidth:true;implicitHeight:32;model:["Regular","Medium","Semibold","Bold"];currentIndex:{var w=win.value("fontWeight",400);return w>=700?3:(w>=600?2:(w>=500?1:0))}onActivated:function(i){setValue("fontWeight",[400,500,600,700][i])}}
+                            NumBox{label:"↔";number:value("letterSpacing",0);Layout.preferredWidth:76;onEdited:function(v){setValue("letterSpacing",v)}}
+                            NumBox{label:"↕";number:value("lineHeight",20);Layout.preferredWidth:76;onEdited:function(v){setValue("lineHeight",Math.max(1,v))}}
+                        }
+                        RowLayout{Layout.fillWidth:true;spacing:3
+                            Text{text:"Align";color:win.muted;font.pixelSize:11;Layout.fillWidth:true}
+                            TinyButton{glyph:"≡";onClicked:setValue("textAlign",Text.AlignLeft)}
+                            TinyButton{glyph:"≣";onClicked:setValue("textAlign",Text.AlignHCenter)}
+                            TinyButton{glyph:"☰";onClicked:setValue("textAlign",Text.AlignRight)}
+                        }
+                    }
+                    Divider{Layout.fillWidth:true;visible:selectedType==="text"}
+                    Section{heading:selectedType==="text"?"Text color":"Fill";visible:selected>=0
                         RowLayout{Layout.fillWidth:true;spacing:8
                             Rectangle{width:28;height:28;radius:7;color:value("fillColor","#fff");border.color:"#484a50"}
                             TextField{Layout.fillWidth:true;implicitHeight:32;text:value("fillColor","#fff");color:"#dedfe3";font.pixelSize:11;selectByMouse:true;background:Rectangle{color:"#232429";border.color:parent.activeFocus?win.accent:"#303238";radius:7} onEditingFinished:setValue("fillColor",text)}
@@ -523,16 +592,26 @@ ApplicationWindow {
                             handle:Rectangle{x:parent.leftPadding+parent.visualPosition*(parent.availableWidth-width);y:parent.topPadding+parent.availableHeight/2-height/2;width:13;height:13;radius:7;color:"white";border.color:win.accent}
                         }
                     }
-                    Divider{Layout.fillWidth:true}
-                    Section{heading:"Corners";NumBox{label:"⌜";number:value("cornerTL",0);onEdited:function(v){setAllCorners(Math.max(0,v))}}}
-                    Divider{Layout.fillWidth:true}
-                    Section{heading:"Stroke"
+                    Divider{Layout.fillWidth:true;visible:selected>=0}
+                    Section{heading:"Corners";visible:selectedType==="rect" || selectedType==="frame"
+                        GridLayout{columns:2;columnSpacing:8;rowSpacing:8;Layout.fillWidth:true
+                            NumBox{label:"⌜";number:value("cornerTL",0);onEdited:function(v){setValue("cornerTL",Math.max(0,v))}}
+                            NumBox{label:"⌝";number:value("cornerTR",0);onEdited:function(v){setValue("cornerTR",Math.max(0,v))}}
+                            NumBox{label:"⌞";number:value("cornerBL",0);onEdited:function(v){setValue("cornerBL",Math.max(0,v))}}
+                            NumBox{label:"⌟";number:value("cornerBR",0);onEdited:function(v){setValue("cornerBR",Math.max(0,v))}}
+                        }
+                        Button{text:"Set all corners";Layout.fillWidth:true;implicitHeight:30;onClicked:setAllCorners(value("cornerTL",0))}
+                    }
+                    Divider{Layout.fillWidth:true;visible:selectedType==="rect" || selectedType==="frame"}
+                    Section{heading:selectedType==="text"?"Text border":"Border";visible:selected>=0
                         RowLayout{Layout.fillWidth:true;spacing:8
-                            Rectangle{width:28;height:28;radius:7;color:value("strokeColor","#fff");border.color:"#484a50"}Text{text:value("strokeColor","#fff");color:"#d1d2d6";font.pixelSize:11;Layout.fillWidth:true}NumBox{label:"";number:value("strokeSize",0);Layout.preferredWidth:70;onEdited:function(v){setValue("strokeSize",Math.max(0,v))}}
+                            Rectangle{width:28;height:28;radius:7;color:value("strokeColor","#fff");border.color:"#484a50"}
+                            TextField{Layout.fillWidth:true;implicitHeight:32;text:value("strokeColor","#fff");color:"#dedfe3";font.pixelSize:11;selectByMouse:true;background:Rectangle{color:"#232429";border.color:parent.activeFocus?win.accent:"#303238";radius:7}onEditingFinished:setValue("strokeColor",text)}
+                            NumBox{label:"W";number:value("strokeSize",0);Layout.preferredWidth:70;onEdited:function(v){setValue("strokeSize",Math.max(0,v))}}
                         }
                     }
-                    Divider{Layout.fillWidth:true}
-                    Section{heading:"Layer"
+                    Divider{Layout.fillWidth:true;visible:selected>=0}
+                    Section{heading:"Layer";visible:selected>=0
                         RowLayout{Layout.fillWidth:true
                             CheckBox{text:"Locked";checked:value("locked",false);onToggled:setValue("locked",checked);contentItem:Text{leftPadding:parent.indicator.width+parent.spacing;text:parent.text;color:win.muted;font.pixelSize:11;verticalAlignment:Text.AlignVCenter}}
                             Item{Layout.fillWidth:true}TinyButton{glyph:"◇";onClicked:duplicate()}TinyButton{glyph:"⌫";onClicked:remove()}
