@@ -13,6 +13,7 @@ ApplicationWindow {
     readonly property color accent: "#6c5ce7"
     property int selected: 0
     property var selection: [0]
+    property int layerSelectionAnchor: 0
     property string tool: "select"
     property real zoom: 1
     property bool grid: true
@@ -62,8 +63,32 @@ ApplicationWindow {
     function selectOnly(index) {
         selected=index
         selection=index>=0?[index]:[]
+        if(index>=0)layerSelectionAnchor=index
     }
     function isSelected(index) { return selection.indexOf(index)>=0 }
+    function selectLayerFromList(index, modifiers) {
+        var useControl=(modifiers&Qt.ControlModifier)!==0
+        var useShift=(modifiers&Qt.ShiftModifier)!==0
+        if(useShift&&layerSelectionAnchor>=0) {
+            var first=Math.min(layerSelectionAnchor,index)
+            var last=Math.max(layerSelectionAnchor,index)
+            var picked=useControl?selection.slice():[]
+            for(var i=first;i<=last;i++)if(picked.indexOf(i)<0)picked.push(i)
+            picked.sort(function(a,b){return a-b})
+            selection=picked;selected=index
+            return
+        }
+        if(useControl) {
+            var toggled=selection.slice()
+            var position=toggled.indexOf(index)
+            if(position>=0)toggled.splice(position,1)
+            else toggled.push(index)
+            selection=toggled;selected=toggled.length?(position>=0?toggled[toggled.length-1]:index):-1
+            layerSelectionAnchor=index
+            return
+        }
+        selectOnly(index)
+    }
     function beginMarquee(x, y) {
         marqueeStartX=x;marqueeStartY=y;marqueeX=x;marqueeY=y
         marqueeWidth=0;marqueeHeight=0;marqueeActive=true
@@ -358,20 +383,23 @@ ApplicationWindow {
                 RowLayout{Layout.fillWidth:true;Layout.preferredHeight:42;Layout.leftMargin:14;Layout.rightMargin:10
                     Text{text:"Layers";color:win.ink;font.pixelSize:12;font.weight:Font.DemiBold}Item{Layout.fillWidth:true}TinyButton{glyph:"+";onClicked:tool="rect"}}
                 Divider{Layout.fillWidth:true}
-                ScrollView{Layout.fillWidth:true;Layout.fillHeight:true;clip:true
-                    Column{width:parent.width;topPadding:8
-                        Repeater{model:layers;delegate:Rectangle{
-                            required property int index;required property string name;required property string type;required property bool shown;required property bool locked
-                            width:parent.width;height:38;radius:6;color:win.isSelected(index)?"#302d49":(hover.containsMouse?"#23252a":"transparent")
-                            Rectangle{visible:win.isSelected(index);width:2;height:22;radius:1;color:win.accent;anchors.left:parent.left;anchors.verticalCenter:parent.verticalCenter}
-                            RowLayout{anchors.fill:parent;anchors.leftMargin:10;anchors.rightMargin:8;spacing:8
-                                Text{text:type==="text"?"T":(type==="ellipse"?"○":type==="frame"?"#":"□");color:win.isSelected(index)?"#bdb6ff":win.muted;font.pixelSize:12;Layout.preferredWidth:18;horizontalAlignment:Text.AlignHCenter}
-                                Text{text:name;color:win.isSelected(index)?"white":"#c7c9ce";font.pixelSize:12;elide:Text.ElideRight;Layout.fillWidth:true}
-                                Text{visible:locked;text:"⌑";color:win.muted;font.pixelSize:11}
-                                Text{text:shown?"●":"○";color:shown?"#777a82":"#44464d";font.pixelSize:8;MouseArea{anchors.fill:parent;anchors.margins:-7;onClicked:function(m){m.accepted=true;win.setLayerShown(index,!shown)}}}
-                            }
-                            MouseArea{id:hover;anchors.fill:parent;hoverEnabled:true;z:-1;onClicked:win.selectOnly(index)}
-                        }}
+                ScrollView{id:layersScroll;Layout.fillWidth:true;Layout.fillHeight:true;clip:true
+                    Item{width:layersScroll.availableWidth;height:Math.max(layersColumn.implicitHeight,layersScroll.availableHeight)
+                        MouseArea{anchors.fill:parent;onClicked:win.selectOnly(-1)}
+                        Column{id:layersColumn;width:parent.width;topPadding:8
+                            Repeater{model:layers;delegate:Rectangle{
+                                required property int index;required property string name;required property string type;required property bool shown;required property bool locked
+                                width:parent.width;height:38;radius:6;color:win.isSelected(index)?"#302d49":(hover.containsMouse?"#23252a":"transparent")
+                                Rectangle{visible:win.isSelected(index);width:2;height:22;radius:1;color:win.accent;anchors.left:parent.left;anchors.verticalCenter:parent.verticalCenter}
+                                RowLayout{anchors.fill:parent;anchors.leftMargin:10;anchors.rightMargin:8;spacing:8
+                                    Text{text:type==="text"?"T":(type==="ellipse"?"○":type==="frame"?"#":"□");color:win.isSelected(index)?"#bdb6ff":win.muted;font.pixelSize:12;Layout.preferredWidth:18;horizontalAlignment:Text.AlignHCenter}
+                                    Text{text:name;color:win.isSelected(index)?"white":"#c7c9ce";font.pixelSize:12;elide:Text.ElideRight;Layout.fillWidth:true}
+                                    Text{visible:locked;text:"⌑";color:win.muted;font.pixelSize:11}
+                                    Text{text:shown?"●":"○";color:shown?"#777a82":"#44464d";font.pixelSize:8;MouseArea{anchors.fill:parent;anchors.margins:-7;onClicked:function(m){m.accepted=true;win.setLayerShown(index,!shown)}}}
+                                }
+                                MouseArea{id:hover;anchors.fill:parent;hoverEnabled:true;z:-1;onClicked:function(mouse){win.selectLayerFromList(index,mouse.modifiers)}}
+                            }}
+                        }
                     }
                 }
                 Divider{Layout.fillWidth:true}
