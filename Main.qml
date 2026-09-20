@@ -1,11 +1,12 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Dialogs
 
 ApplicationWindow {
     id: win
     width: 1440; height: 900; minimumWidth: 1100; minimumHeight: 700
-    visible: true; title: "Linea — Untitled design"; color: "#111214"
+    visible: true; title: "Linea — "+documentName+(documentModified?" *":""); color: "#111214"
     readonly property color panel: "#191a1d"
     readonly property color line: "#2b2d32"
     readonly property color muted: "#92959e"
@@ -34,6 +35,9 @@ ApplicationWindow {
     property var pageUndoStacks: []
     property var pageRedoStacks: []
     property bool restoringHistory: false
+    property url currentFileUrl:""
+    property bool documentModified:false
+    property string documentName:currentFileUrl.toString().length?decodeURIComponent(currentFileUrl.toString().split("/").pop()):"Untitled design"
     property bool drawingShape: false
     property real drawStartX: 0
     property real drawStartY: 0
@@ -201,6 +205,7 @@ ApplicationWindow {
         var redoStacks=pageRedoStacks.slice()
         redoStacks[currentPage]=[]
         pageRedoStacks=redoStacks
+        documentModified=true
     }
     function recordHistory() { pushUndoState(snapshotState()) }
     function restoreState(state) {
@@ -260,7 +265,52 @@ ApplicationWindow {
         currentPage=pages.count-1
         layers.clear()
         selectOnly(-1)
+        documentModified=true
     }
+    function documentData() {
+        saveCurrentPage()
+        var pageList=[]
+        for(var i=0;i<pages.count;i++)pageList.push({name:pages.get(i).pageName,layers:pageDocuments[i]||[]})
+        return {format:"Linea",version:1,currentPage:currentPage,nextId:nextId,nextPage:nextPage,pages:pageList}
+    }
+    function newDocument() {
+        restoringHistory=true
+        layers.clear();pages.clear();pages.append({pageName:"Page 1"})
+        pageDocuments=[[]];pageUndoStacks=[[]];pageRedoStacks=[[]]
+        currentPage=0;nextId=1;nextPage=2;selectOnly(-1);currentFileUrl="";documentModified=false
+        restoringHistory=false
+    }
+    function loadDocument(data, url) {
+        if(!data || data.format!=="Linea" || !data.pages || !data.pages.length){showFileError("This is not a valid Linea document.");return}
+        restoringHistory=true
+        layers.clear();pages.clear();pageDocuments=[]
+        for(var i=0;i<data.pages.length;i++){
+            var page=data.pages[i]
+            pages.append({pageName:page.name||("Page "+(i+1))})
+            var document=[]
+            var source=page.layers||[]
+            for(var j=0;j<source.length;j++)document.push(layerData(source[j]))
+            pageDocuments.push(document)
+        }
+        currentPage=Math.max(0,Math.min(Number(data.currentPage)||0,pages.count-1))
+        var activeDocument=pageDocuments[currentPage]
+        for(var k=0;k<activeDocument.length;k++)layers.append(activeDocument[k])
+        nextId=Math.max(1,Number(data.nextId)||1);nextPage=Math.max(pages.count+1,Number(data.nextPage)||pages.count+1)
+        pageUndoStacks=[];pageRedoStacks=[]
+        for(var p=0;p<pages.count;p++){pageUndoStacks.push([]);pageRedoStacks.push([])}
+        selectOnly(-1);currentFileUrl=url;documentModified=false;restoringHistory=false
+    }
+    function saveDocument(url) {
+        if(!url || !url.toString().length){saveFileDialog.open();return}
+        if(documentFileController.save(url,documentData())){currentFileUrl=url;documentModified=false}
+        else showFileError(documentFileController.errorString)
+    }
+    function openDocument(url) {
+        var data=documentFileController.load(url)
+        if(documentFileController.errorString.length)showFileError(documentFileController.errorString)
+        else loadDocument(data,url)
+    }
+    function showFileError(message){fileErrorDialog.errorMessage=message;fileErrorDialog.open()}
 
     Component.onCompleted: {
         pageDocuments=[snapshotLayers(),[
@@ -271,6 +321,11 @@ ApplicationWindow {
         pageRedoStacks=[[],[]]
     }
 
+    FileDialog{id:openFileDialog;title:"Open Linea document";fileMode:FileDialog.OpenFile;nameFilters:["Linea documents (*.linea *.json)","All files (*)"];onAccepted:openDocument(selectedFile)}
+    FileDialog{id:saveFileDialog;title:"Save Linea document";fileMode:FileDialog.SaveFile;defaultSuffix:"linea";nameFilters:["Linea documents (*.linea)"];onAccepted:saveDocument(selectedFile)}
+    Dialog{id:fileErrorDialog;property string errorMessage:"";title:"File error";modal:true;anchors.centerIn:parent;standardButtons:Dialog.Ok
+        contentItem:Text{text:fileErrorDialog.errorMessage;color:win.ink;wrapMode:Text.Wrap;width:360}
+    }
     Shortcut { sequence:"Delete"; onActivated: win.remove() }
     Shortcut { sequence:"Backspace"; onActivated: win.remove() }
     Shortcut { sequence:"Ctrl+D"; onActivated: win.duplicate() }
@@ -327,11 +382,40 @@ ApplicationWindow {
         Text{text:parent.heading;color:"#e8e8ea";font.pixelSize:11;font.weight:Font.DemiBold}
     }
 
+    Action{id:newDocumentAction;text:"New";shortcut:"Ctrl+N";onTriggered:newDocument()}
+    Action{id:openDocumentAction;text:"Open…";shortcut:"Ctrl+O";onTriggered:openFileDialog.open()}
+    Action{id:saveDocumentAction;text:"Save";shortcut:"Ctrl+S";onTriggered:saveDocument(currentFileUrl)}
+    Action{id:saveAsDocumentAction;text:"Save As…";shortcut:"Ctrl+Shift+S";onTriggered:saveFileDialog.open()}
+
+    menuBar:MenuBar{
+        Menu{title:"File"
+            MenuItem{action:newDocumentAction}
+            MenuItem{action:openDocumentAction}
+            MenuSeparator{}
+            MenuItem{action:saveDocumentAction}
+            MenuItem{action:saveAsDocumentAction}
+        }
+        Menu{title:"Edit"
+            MenuItem{text:"Undo";enabled:(pageUndoStacks[currentPage]||[]).length>0;onTriggered:undo()}
+            MenuItem{text:"Redo";enabled:(pageRedoStacks[currentPage]||[]).length>0;onTriggered:redo()}
+            MenuSeparator{}
+            MenuItem{text:"Duplicate";enabled:selected>=0;onTriggered:duplicate()}
+            MenuItem{text:"Delete";enabled:selection.length>0;onTriggered:remove()}
+        }
+        Menu{title:"View"
+            MenuItem{text:grid?"Hide Grid":"Show Grid";onTriggered:grid=!grid}
+            MenuSeparator{}
+            MenuItem{text:"Zoom In";onTriggered:zoom=Math.min(2,zoom+.1)}
+            MenuItem{text:"Zoom Out";onTriggered:zoom=Math.max(.25,zoom-.1)}
+            MenuItem{text:"Actual Size";onTriggered:zoom=1}
+        }
+    }
+
     header:Rectangle{
         height:52;color:win.panel;border.color:win.line
         RowLayout{anchors.left:parent.left;anchors.leftMargin:14;anchors.verticalCenter:parent.verticalCenter;spacing:10
                 Rectangle{width:30;height:30;radius:9;color:win.accent;Text{anchors.centerIn:parent;text:"L";color:"white";font.pixelSize:18;font.bold:true;font.italic:true}}
-                ColumnLayout{spacing:-1;Text{text:"Linea";color:win.ink;font.pixelSize:14;font.weight:Font.DemiBold}Text{text:"Untitled design";color:win.muted;font.pixelSize:10}}
+                ColumnLayout{spacing:-1;Text{text:"Linea";color:win.ink;font.pixelSize:14;font.weight:Font.DemiBold}Text{text:win.documentName+(win.documentModified?" *":"");color:win.muted;font.pixelSize:10;elide:Text.ElideMiddle;Layout.preferredWidth:150}}
         }
         Divider{x:251;anchors.top:parent.top;anchors.bottom:parent.bottom;anchors.topMargin:8;anchors.bottomMargin:8}
         RowLayout{anchors.centerIn:parent;spacing:4
