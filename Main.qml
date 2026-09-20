@@ -105,11 +105,21 @@ ApplicationWindow {
         drawStartX=(x-artboard.x)/zoom;drawStartY=(y-artboard.y)/zoom;drawX=drawStartX;drawY=drawStartY
         drawWidth=0;drawHeight=0;drawingShape=true;selectOnly(-1)
     }
-    function updateDrawing(x, y) {
+    function updateDrawing(x, y, modifiers) {
         var logicalX=(x-artboard.x)/zoom
         var logicalY=(y-artboard.y)/zoom
-        drawX=Math.min(drawStartX,logicalX);drawY=Math.min(drawStartY,logicalY)
-        drawWidth=Math.abs(logicalX-drawStartX);drawHeight=Math.abs(logicalY-drawStartY)
+        var deltaX=logicalX-drawStartX
+        var deltaY=logicalY-drawStartY
+        var constrainProportions=(tool==="rect" || tool==="ellipse") && (modifiers & Qt.ControlModifier)
+        if(constrainProportions) {
+            var size=Math.max(Math.abs(deltaX),Math.abs(deltaY))
+            drawX=deltaX<0?drawStartX-size:drawStartX
+            drawY=deltaY<0?drawStartY-size:drawStartY
+            drawWidth=size;drawHeight=size
+        } else {
+            drawX=Math.min(drawStartX,logicalX);drawY=Math.min(drawStartY,logicalY)
+            drawWidth=Math.abs(deltaX);drawHeight=Math.abs(deltaY)
+        }
     }
     function finishDrawing() {
         if(!drawingShape) return
@@ -469,8 +479,8 @@ ApplicationWindow {
             MouseArea{
                 anchors.fill:parent;z:500;enabled:isShapeTool(tool);cursorShape:Qt.CrossCursor
                 onPressed:function(mouse){beginDrawing(mouse.x,mouse.y)}
-                onPositionChanged:function(mouse){if(pressed)updateDrawing(mouse.x,mouse.y)}
-                onReleased:function(mouse){updateDrawing(mouse.x,mouse.y);finishDrawing()}
+                onPositionChanged:function(mouse){if(pressed)updateDrawing(mouse.x,mouse.y,mouse.modifiers)}
+                onReleased:function(mouse){updateDrawing(mouse.x,mouse.y,mouse.modifiers);finishDrawing()}
                 onCanceled:{drawingShape=false}
             }
             Rectangle{
