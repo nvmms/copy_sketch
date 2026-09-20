@@ -38,6 +38,7 @@ ApplicationWindow {
     property bool grid: true
     property bool rightOpen: true
     property int nextId: 8
+    property int nextGroupId: 1
     property int currentPage: 0
     property int nextPage: 3
     property real pagesPanelHeight: 76
@@ -53,6 +54,8 @@ ApplicationWindow {
     property var pageUndoStacks: []
     property var pageRedoStacks: []
     property bool restoringHistory: false
+    property bool layerReordering:false
+    property var frozenLayerOrder:({})
     property url currentFileUrl:""
     property bool documentModified:false
     property string documentName:currentFileUrl.toString().length?decodeURIComponent(currentFileUrl.toString().split("/").pop()):"Untitled design"
@@ -88,6 +91,79 @@ ApplicationWindow {
         if(index>=0)layerSelectionAnchor=index
     }
     function isSelected(index) { return selection.indexOf(index)>=0 }
+    function selectedShapeIds() {
+        var ids=[]
+        for(var i=0;i<selection.length;i++)if(selection[i]>=0&&selection[i]<layers.count)ids.push(layers.get(selection[i]).shapeId)
+        return ids
+    }
+    function restoreSelectionByIds(ids, primaryId) {
+        var picked=[];var primary=-1
+        for(var i=0;i<layers.count;i++){
+            var id=layers.get(i).shapeId
+            if(ids.indexOf(id)>=0)picked.push(i)
+            if(id===primaryId)primary=i
+        }
+        selection=picked;selected=primary>=0?primary:(picked.length?picked[picked.length-1]:-1)
+    }
+    function moveLayer(from, to) {
+        if(from<0||from>=layers.count)return
+        to=Math.max(0,Math.min(to,layers.count-1))
+        if(from===to)return
+        var ids=selectedShapeIds();var primaryId=selected>=0?layers.get(selected).shapeId:-1
+        recordHistory();layers.move(from,to,1);restoreSelectionByIds(ids,primaryId)
+    }
+    function reorderLayerLive(from, to) {
+        if(from<0||from>=layers.count)return false
+        to=Math.max(0,Math.min(to,layers.count-1))
+        if(from===to)return false
+        var ids=selectedShapeIds();var primaryId=selected>=0?layers.get(selected).shapeId:-1
+        var draggedId=layers.get(from).shapeId;var changed=false;var current=from
+        while(current!==to){
+            var direction=to>current?1:-1
+            var ordered=selection.slice().sort(function(a,b){return a-b})
+            if((direction>0&&ordered[ordered.length-1]>=layers.count-1)||(direction<0&&ordered[0]<=0))break
+            if(direction>0){for(var i=ordered.length-1;i>=0;i--)layers.move(ordered[i],ordered[i]+1,1)}
+            else{for(var j=0;j<ordered.length;j++)layers.move(ordered[j],ordered[j]-1,1)}
+            restoreSelectionByIds(ids,primaryId);changed=true
+            for(var k=0;k<layers.count;k++)if(layers.get(k).shapeId===draggedId){current=k;break}
+        }
+        return changed
+    }
+    function beginLayerReorder() {
+        var order={}
+        for(var i=0;i<layers.count;i++)order[String(layers.get(i).shapeId)]=i
+        frozenLayerOrder=order;layerReordering=true
+    }
+    function finishLayerReorder() { layerReordering=false;frozenLayerOrder=({}) }
+    function renderedLayerZ(shapeId, fallback) {
+        if(!layerReordering)return fallback
+        var frozen=frozenLayerOrder[String(shapeId)]
+        return frozen===undefined?fallback:frozen
+    }
+    function moveSelectedLayers(direction) {
+        if(!selection.length)return
+        var ordered=selection.slice().sort(function(a,b){return a-b})
+        var ids=selectedShapeIds();var primaryId=selected>=0?layers.get(selected).shapeId:-1
+        var canMove=direction>0?ordered[ordered.length-1]<layers.count-1:ordered[0]>0
+        if(!canMove)return
+        recordHistory()
+        if(direction>0){for(var i=ordered.length-1;i>=0;i--)layers.move(ordered[i],ordered[i]+1,1)}
+        else{for(var j=0;j<ordered.length;j++)layers.move(ordered[j],ordered[j]-1,1)}
+        restoreSelectionByIds(ids,primaryId)
+    }
+    function moveSelectionToEdge(front) {
+        if(!selection.length)return
+        var ids=selectedShapeIds();var primaryId=selected>=0?layers.get(selected).shapeId:-1
+        recordHistory()
+        if(front){for(var i=0;i<ids.length;i++){for(var j=0;j<layers.count;j++)if(layers.get(j).shapeId===ids[i]){layers.move(j,layers.count-1,1);break}}}
+        else{for(var k=ids.length-1;k>=0;k--){for(var n=0;n<layers.count;n++)if(layers.get(n).shapeId===ids[k]){layers.move(n,0,1);break}}}
+        restoreSelectionByIds(ids,primaryId)
+    }
+    function renameLayer(index, name) {
+        var trimmed=name.trim()
+        if(index<0||index>=layers.count||!trimmed.length||layers.get(index).name===trimmed)return
+        recordHistory();layers.setProperty(index,"name",trimmed)
+    }
     function selectLayerFromList(index, modifiers) {
         var useControl=(modifiers&Qt.ControlModifier)!==0
         var useShift=(modifiers&Qt.ShiftModifier)!==0
@@ -109,7 +185,28 @@ ApplicationWindow {
             layerSelectionAnchor=index
             return
         }
-        selectOnly(index)
+        selectLayerOrGroup(index)
+    }
+    function selectLayerOrGroup(index) {
+        if(index<0||index>=layers.count)return
+        var group=layers.get(index).groupId||0
+        if(!group){selectOnly(index);return}
+        var picked=[]
+        for(var i=0;i<layers.count;i++)if(layers.get(i).groupId===group)picked.push(i)
+        selection=picked;selected=index;layerSelectionAnchor=index
+    }
+    function groupSelection() {
+        if(selection.length<2)return
+        recordHistory();var group=nextGroupId++
+        for(var i=0;i<selection.length;i++)layers.setProperty(selection[i],"groupId",group)
+    }
+    function ungroupSelection() {
+        if(!selection.length)return
+        var groups=[]
+        for(var i=0;i<selection.length;i++){var group=layers.get(selection[i]).groupId||0;if(group&&groups.indexOf(group)<0)groups.push(group)}
+        if(!groups.length)return
+        recordHistory()
+        for(var j=0;j<layers.count;j++)if(groups.indexOf(layers.get(j).groupId)>-1)layers.setProperty(j,"groupId",0)
     }
     function beginMarquee(x, y) {
         marqueeStartX=x;marqueeStartY=y;marqueeX=x;marqueeY=y
@@ -144,7 +241,7 @@ ApplicationWindow {
         var o = {shapeId:n, type:kind, name:"Rectangle", px:x, py:y,
             sw:width, sh:height, fillColor:"#6c5ce7", strokeColor:"#ffffff", strokeSize:0,
             corner:16, cornerTL:16, cornerTR:16, cornerBL:16, cornerBR:16,
-            fontSize:16, fontFamily:"Arial", fontWeight:Font.Normal, letterSpacing:0, lineHeight:20, textAlign:Text.AlignLeft,
+            fontSize:16, fontFamily:"Arial", fontWeight:Font.Normal, letterSpacing:0, lineHeight:20, textAlign:Text.AlignLeft, groupId:0,
             alpha:1, shown:true, locked:false, copy:""}
         if (kind === "ellipse") { o.name="Ellipse"; o.fillColor="#ff6b9d"; o.corner=Math.min(width,height)/2;o.cornerTL=o.corner;o.cornerTR=o.corner;o.cornerBL=o.corner;o.cornerBR=o.corner }
         else if (kind === "text") { o.name="Heading"; o.fillColor="#18171d"; o.copy="New headline"; o.corner=0;o.cornerTL=0;o.cornerTR=0;o.cornerBL=0;o.cornerBR=0 }
@@ -183,7 +280,7 @@ ApplicationWindow {
         var s=layers.get(selected)
         layers.append({shapeId:nextId++,type:s.type,name:s.name+" copy",px:s.px+18,py:s.py+18,sw:s.sw,sh:s.sh,
             fillColor:s.fillColor,strokeColor:s.strokeColor,strokeSize:s.strokeSize,corner:s.corner,cornerTL:s.cornerTL,cornerTR:s.cornerTR,cornerBL:s.cornerBL,cornerBR:s.cornerBR,
-            fontSize:s.fontSize,fontFamily:s.fontFamily,fontWeight:s.fontWeight,letterSpacing:s.letterSpacing,lineHeight:s.lineHeight,textAlign:s.textAlign,
+            fontSize:s.fontSize,fontFamily:s.fontFamily,fontWeight:s.fontWeight,letterSpacing:s.letterSpacing,lineHeight:s.lineHeight,textAlign:s.textAlign,groupId:s.groupId||0,
             alpha:s.alpha,shown:s.shown,locked:false,copy:s.copy})
         selectOnly(layers.count-1)
     }
@@ -201,7 +298,7 @@ ApplicationWindow {
             cornerBL:s.cornerBL===undefined?s.corner:s.cornerBL,cornerBR:s.cornerBR===undefined?s.corner:s.cornerBR,
             fontSize:s.fontSize===undefined?16:s.fontSize,fontFamily:s.fontFamily===undefined?"Arial":s.fontFamily,
             fontWeight:s.fontWeight===undefined?Font.Normal:s.fontWeight,letterSpacing:s.letterSpacing===undefined?0:s.letterSpacing,
-            lineHeight:s.lineHeight===undefined?20:s.lineHeight,textAlign:s.textAlign===undefined?Text.AlignLeft:s.textAlign,
+            lineHeight:s.lineHeight===undefined?20:s.lineHeight,textAlign:s.textAlign===undefined?Text.AlignLeft:s.textAlign,groupId:s.groupId||0,
             alpha:s.alpha,shown:s.shown,locked:s.locked,copy:s.copy}
     }
     function snapshotLayers() {
@@ -289,13 +386,13 @@ ApplicationWindow {
         saveCurrentPage()
         var pageList=[]
         for(var i=0;i<pages.count;i++)pageList.push({name:pages.get(i).pageName,layers:pageDocuments[i]||[]})
-        return {format:"Linea",version:1,currentPage:currentPage,nextId:nextId,nextPage:nextPage,pages:pageList}
+        return {format:"Linea",version:1,currentPage:currentPage,nextId:nextId,nextGroupId:nextGroupId,nextPage:nextPage,pages:pageList}
     }
     function newDocument() {
         restoringHistory=true
         layers.clear();pages.clear();pages.append({pageName:"Page 1"})
         pageDocuments=[[]];pageUndoStacks=[[]];pageRedoStacks=[[]]
-        currentPage=0;nextId=1;nextPage=2;selectOnly(-1);currentFileUrl="";documentModified=false
+        currentPage=0;nextId=1;nextGroupId=1;nextPage=2;selectOnly(-1);currentFileUrl="";documentModified=false
         restoringHistory=false
     }
     function loadDocument(data, url) {
@@ -313,7 +410,7 @@ ApplicationWindow {
         currentPage=Math.max(0,Math.min(Number(data.currentPage)||0,pages.count-1))
         var activeDocument=pageDocuments[currentPage]
         for(var k=0;k<activeDocument.length;k++)layers.append(activeDocument[k])
-        nextId=Math.max(1,Number(data.nextId)||1);nextPage=Math.max(pages.count+1,Number(data.nextPage)||pages.count+1)
+        nextId=Math.max(1,Number(data.nextId)||1);nextGroupId=Math.max(1,Number(data.nextGroupId)||1);nextPage=Math.max(pages.count+1,Number(data.nextPage)||pages.count+1)
         pageUndoStacks=[];pageRedoStacks=[]
         for(var p=0;p<pages.count;p++){pageUndoStacks.push([]);pageRedoStacks.push([])}
         selectOnly(-1);currentFileUrl=url;documentModified=false;restoringHistory=false
@@ -347,6 +444,8 @@ ApplicationWindow {
     Shortcut { sequence:"Delete"; onActivated: win.remove() }
     Shortcut { sequence:"Backspace"; onActivated: win.remove() }
     Shortcut { sequence:"Ctrl+D"; onActivated: win.duplicate() }
+    Shortcut { sequence:"Ctrl+G"; onActivated: win.groupSelection() }
+    Shortcut { sequence:"Ctrl+Shift+G"; onActivated: win.ungroupSelection() }
     Shortcut { sequence:StandardKey.Undo; onActivated: win.undo() }
     Shortcut { sequence:StandardKey.Redo; onActivated: win.redo() }
     Shortcut { sequence:"V"; onActivated: tool="select" }
@@ -360,6 +459,7 @@ ApplicationWindow {
 
     ListModel {
         id: layers
+        dynamicRoles:true
         ListElement { shapeId:1; type:"rect"; name:"Primary card"; px:126; py:108; sw:370; sh:250; fillColor:"#ffffff"; strokeColor:"#e9e8ef"; strokeSize:1; corner:24; cornerTL:24; cornerTR:24; cornerBL:24; cornerBR:24; fontSize:16; fontFamily:"Arial"; fontWeight:400; letterSpacing:0; lineHeight:20; textAlign:1; alpha:1; shown:true; locked:false; copy:"" }
         ListElement { shapeId:2; type:"text"; name:"Design freely"; px:164; py:146; sw:290; sh:56; fillColor:"#18171d"; strokeColor:"#000000"; strokeSize:0; corner:0; cornerTL:0; cornerTR:0; cornerBL:0; cornerBR:0; fontSize:36; fontFamily:"Arial"; fontWeight:700; letterSpacing:0; lineHeight:44; textAlign:1; alpha:1; shown:true; locked:false; copy:"Design freely" }
         ListElement { shapeId:3; type:"text"; name:"Subtitle"; px:165; py:214; sw:280; sh:46; fillColor:"#777681"; strokeColor:"#000000"; strokeSize:0; corner:0; cornerTL:0; cornerTR:0; cornerBL:0; cornerBR:0; fontSize:16; fontFamily:"Arial"; fontWeight:400; letterSpacing:0; lineHeight:22; textAlign:1; alpha:1; shown:true; locked:false; copy:"Create interfaces that feel alive." }
@@ -419,6 +519,16 @@ ApplicationWindow {
             MenuSeparator{}
             MenuItem{text:"Duplicate";enabled:selected>=0;onTriggered:duplicate()}
             MenuItem{text:"Delete";enabled:selection.length>0;onTriggered:remove()}
+        }
+        Menu{title:"Layer"
+            MenuItem{text:"Group";enabled:selection.length>1;onTriggered:groupSelection()}
+            MenuItem{text:"Ungroup";enabled:selection.length>0;onTriggered:ungroupSelection()}
+            MenuSeparator{}
+            MenuItem{text:"Bring Forward";enabled:selection.length>0;onTriggered:moveSelectedLayers(1)}
+            MenuItem{text:"Send Backward";enabled:selection.length>0;onTriggered:moveSelectedLayers(-1)}
+            MenuSeparator{}
+            MenuItem{text:"Bring to Front";enabled:selection.length>0;onTriggered:moveSelectionToEdge(true)}
+            MenuItem{text:"Send to Back";enabled:selection.length>0;onTriggered:moveSelectionToEdge(false)}
         }
         Menu{title:"View"
             MenuItem{text:grid?"Hide Grid":"Show Grid";onTriggered:grid=!grid}
@@ -489,24 +599,68 @@ ApplicationWindow {
                     Item{width:layersScroll.availableWidth;height:Math.max(layersColumn.implicitHeight,layersScroll.availableHeight)
                         MouseArea{anchors.fill:parent;onClicked:win.selectOnly(-1)}
                         Column{id:layersColumn;width:parent.width;topPadding:8
+                            move:Transition{NumberAnimation{properties:"y";duration:90;easing.type:Easing.OutCubic}}
                             Repeater{model:layers;delegate:Rectangle{
+                                id:layerRow
                                 required property int index;required property string name;required property string type;required property bool shown;required property bool locked
+                                property bool renaming:false
+                                property int rowGroupId:(layers.get(index).groupId||0)
+                                property real dragOriginY:0
+                                property real dragAbsoluteY:0
+                                property var dragHistoryState:null
+                                property bool dragChanged:false
                                 width:parent.width;height:38;radius:6;color:win.isSelected(index)?win.selectedSurface:(hover.containsMouse?win.hoverSurface:"transparent")
+                                opacity:layerDrag.active ? 0.72 : 1;z:layerDrag.active?100:0
+                                border.color:layerDrag.active?win.accent:"transparent";border.width:layerDrag.active?1:0
+                                transform:Translate{y:layerDrag.active?layerRow.dragAbsoluteY-layerRow.y:0}
                                 Rectangle{visible:win.isSelected(index);width:2;height:22;radius:1;color:win.accent;anchors.left:parent.left;anchors.verticalCenter:parent.verticalCenter}
                                 RowLayout{anchors.fill:parent;anchors.leftMargin:10;anchors.rightMargin:8;spacing:8
                                     Text{text:type==="text"?"T":(type==="ellipse"?"○":type==="frame"?"#":"□");color:win.isSelected(index)?win.accent:win.muted;font.pixelSize:12;Layout.preferredWidth:18;horizontalAlignment:Text.AlignHCenter}
-                                    Text{text:name;color:win.isSelected(index)?win.ink:win.subtleInk;font.pixelSize:12;elide:Text.ElideRight;Layout.fillWidth:true}
+                                    Text{visible:!layerRow.renaming;text:name;color:win.isSelected(index)?win.ink:win.subtleInk;font.pixelSize:12;elide:Text.ElideRight;Layout.fillWidth:true}
+                                    TextField{id:renameField;visible:layerRow.renaming;Layout.fillWidth:true;implicitHeight:28;text:layerRow.name;selectByMouse:true
+                                        onVisibleChanged:if(visible){forceActiveFocus();selectAll()}
+                                        onAccepted:{win.renameLayer(layerRow.index,text);layerRow.renaming=false}
+                                        onActiveFocusChanged:if(layerRow.renaming&&!activeFocus){win.renameLayer(layerRow.index,text);layerRow.renaming=false}
+                                        Keys.onEscapePressed:function(event){layerRow.renaming=false;event.accepted=true}
+                                    }
+                                    Text{visible:layerRow.rowGroupId>0;text:"⌘";color:win.accent;font.pixelSize:10}
                                     Text{visible:locked;text:"⌑";color:win.muted;font.pixelSize:11}
                                     Text{text:shown?"●":"○";color:shown?win.muted:win.line;font.pixelSize:8;MouseArea{anchors.fill:parent;anchors.margins:-7;onClicked:function(m){m.accepted=true;win.setLayerShown(index,!shown)}}}
                                 }
-                                MouseArea{id:hover;anchors.fill:parent;hoverEnabled:true;z:-1;onClicked:function(mouse){win.selectLayerFromList(index,mouse.modifiers)}}
+                                MouseArea{id:hover;anchors.fill:parent;hoverEnabled:true;z:-1;onClicked:function(mouse){win.selectLayerFromList(index,mouse.modifiers)}onDoubleClicked:{win.selectOnly(index);layerRow.renaming=true}}
+                                DragHandler{id:layerDrag;target:null;enabled:!layerRow.renaming;xAxis.enabled:false
+                                    onActiveChanged:{
+                                        if(active){
+                                            if(!win.isSelected(layerRow.index))win.selectLayerOrGroup(layerRow.index)
+                                            win.beginLayerReorder()
+                                            layerRow.dragOriginY=layerRow.y;layerRow.dragAbsoluteY=layerRow.y
+                                            layerRow.dragHistoryState=win.snapshotState();layerRow.dragChanged=false
+                                        }else{
+                                            if(layerRow.dragChanged&&layerRow.dragHistoryState)win.pushUndoState(layerRow.dragHistoryState)
+                                            win.finishLayerReorder()
+                                            layerRow.dragHistoryState=null;layerRow.dragChanged=false
+                                        }
+                                    }
+                                    onTranslationChanged:{
+                                        if(!active)return
+                                        var absoluteY=layerRow.dragOriginY+activeTranslation.y
+                                        layerRow.dragAbsoluteY=absoluteY
+                                        var targetIndex=Math.max(0,Math.min(layers.count-1,Math.floor((absoluteY+layerRow.height/2-layersColumn.topPadding)/layerRow.height)))
+                                        if(targetIndex!==layerRow.index&&win.reorderLayerLive(layerRow.index,targetIndex)){
+                                            layerRow.dragChanged=true
+                                        }
+                                    }
+                                }
                             }}
                         }
                     }
                 }
                 Divider{Layout.fillWidth:true}
                 RowLayout{Layout.fillWidth:true;Layout.preferredHeight:44;Layout.leftMargin:10;Layout.rightMargin:10
-                    TinyButton{glyph:"+";onClicked:tool="rect"}TinyButton{glyph:"◇";onClicked:duplicate()}Item{Layout.fillWidth:true}TinyButton{glyph:"⌫";onClicked:remove()}}
+                    TinyButton{glyph:"+";onClicked:tool="rect"}TinyButton{glyph:"◇";onClicked:duplicate()}
+                    TinyButton{glyph:"↓";onClicked:moveSelectedLayers(-1);ToolTip.visible:hovered;ToolTip.text:"Send backward"}
+                    TinyButton{glyph:"↑";onClicked:moveSelectedLayers(1);ToolTip.visible:hovered;ToolTip.text:"Bring forward"}
+                    Item{Layout.fillWidth:true}TinyButton{glyph:"⌫";onClicked:remove()}}
             }
         }
 
@@ -533,7 +687,7 @@ ApplicationWindow {
                 }
                 Text{text:pages.get(currentPage).pageName;color:win.muted;font.pixelSize:11;x:2;y:-24}
                 Repeater{model:layers;delegate:Item{
-                    id:item;required property int index;required property string type;required property string fillColor;required property string strokeColor;required property real strokeSize;required property real corner;required property real cornerTL;required property real cornerTR;required property real cornerBL;required property real cornerBR;required property real fontSize;required property string fontFamily;required property int fontWeight;required property real letterSpacing;required property real lineHeight;required property int textAlign;required property real alpha;required property bool shown;required property bool locked;required property string copy;required property real px;required property real py;required property real sw;required property real sh
+                    id:item;required property int index;required property int shapeId;required property string type;required property string fillColor;required property string strokeColor;required property real strokeSize;required property real corner;required property real cornerTL;required property real cornerTR;required property real cornerBL;required property real cornerBR;required property real fontSize;required property string fontFamily;required property int fontWeight;required property real letterSpacing;required property real lineHeight;required property int textAlign;required property real alpha;required property bool shown;required property bool locked;required property string copy;required property real px;required property real py;required property real sw;required property real sh
                     property bool inlineEditing:false
                     property var inlineHistoryState:null
                     property string inlineOriginalText:""
@@ -550,7 +704,7 @@ ApplicationWindow {
                         inlineHistoryState=null;inlineEditor.focus=false;inlineEditing=false
                     }
                     Connections{target:win;function onSelectionChanged(){if(item.inlineEditing&&!win.isSelected(item.index))item.finishInlineEditing(false)}}
-                    x:px*zoom;y:py*zoom;width:sw*zoom;height:sh*zoom;visible:shown;opacity:alpha;z:index
+                    x:px*zoom;y:py*zoom;width:sw*zoom;height:sh*zoom;visible:shown;opacity:alpha;z:win.renderedLayerZ(shapeId,index)
                     Rectangle{anchors.fill:parent;color:item.type==="text"?"transparent":item.fillColor;border.color:item.strokeSize>0?item.strokeColor:"transparent";border.width:item.strokeSize*zoom;radius:item.type==="ellipse"?Math.min(width,height)/2:(item.type==="frame"?item.corner*zoom:0);topLeftRadius:item.type==="rect"?item.cornerTL*zoom:radius;topRightRadius:item.type==="rect"?item.cornerTR*zoom:radius;bottomLeftRadius:item.type==="rect"?item.cornerBL*zoom:radius;bottomRightRadius:item.type==="rect"?item.cornerBR*zoom:radius}
                     Text{visible:item.type==="text"&&!item.inlineEditing;anchors.fill:parent;text:item.copy;color:item.fillColor;font.family:item.fontFamily;font.pixelSize:item.fontSize*zoom;font.weight:item.fontWeight;font.letterSpacing:item.letterSpacing*zoom;lineHeight:item.lineHeight*zoom;lineHeightMode:Text.FixedHeight;horizontalAlignment:item.textAlign;verticalAlignment:Text.AlignVCenter;wrapMode:Text.Wrap;style:item.strokeSize>0?Text.Outline:Text.Normal;styleColor:item.strokeColor}
                     MouseArea{
@@ -563,7 +717,7 @@ ApplicationWindow {
                         property bool dragChanged:false
                         onPressed:function(mouse){
                             if(tool!=="select") return
-                            if(!isSelected(item.index)) selectOnly(item.index)
+                            if(!isSelected(item.index)) selectLayerOrGroup(item.index)
                             var p=mapToItem(workspace,mouse.x,mouse.y)
                             dragStartX=p.x;dragStartY=p.y
                             dragHistoryState=snapshotState();dragChanged=false
