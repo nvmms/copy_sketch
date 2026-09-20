@@ -33,6 +33,13 @@ ApplicationWindow {
     property var pageUndoStacks: []
     property var pageRedoStacks: []
     property bool restoringHistory: false
+    property bool drawingShape: false
+    property real drawStartX: 0
+    property real drawStartY: 0
+    property real drawX: 0
+    property real drawY: 0
+    property real drawWidth: 0
+    property real drawHeight: 0
 
     function value(role, fallback) {
         if (selected < 0 || selected >= layers.count) return fallback
@@ -70,16 +77,38 @@ ApplicationWindow {
         selected=picked.length?picked[picked.length-1]:-1
     }
     function finishMarquee() { marqueeActive=false }
-    function addShape(kind) {
+    function isShapeTool(kind) { return kind==="rect" || kind==="ellipse" || kind==="text" || kind==="frame" }
+    function syncWorkspaceCursor() {
+        if(!workspaceHover.hovered || isShapeTool(tool)) cursorController.leaveArtboard()
+        else cursorController.enterArtboard()
+    }
+    onToolChanged:syncWorkspaceCursor()
+    function appendShape(kind, x, y, width, height) {
         recordHistory()
         var n = nextId++
-        var o = {shapeId:n, type:kind, name:"Rectangle", px:150+(n*19)%210, py:120+(n*23)%180,
-            sw:180, sh:120, fillColor:"#6c5ce7", strokeColor:"#ffffff", strokeSize:0,
+        var o = {shapeId:n, type:kind, name:"Rectangle", px:x, py:y,
+            sw:width, sh:height, fillColor:"#6c5ce7", strokeColor:"#ffffff", strokeSize:0,
             corner:16, alpha:1, shown:true, locked:false, copy:""}
-        if (kind === "ellipse") { o.name="Ellipse"; o.sw=140; o.sh=140; o.fillColor="#ff6b9d"; o.corner=70 }
-        else if (kind === "text") { o.name="Heading"; o.sw=260; o.sh=56; o.fillColor="#18171d"; o.copy="New headline"; o.corner=0 }
-        else if (kind === "frame") { o.name="Frame "+n; o.sw=320; o.sh=240; o.fillColor="#ffffff"; o.corner=12 }
-        layers.append(o); selectOnly(layers.count-1); tool="select"
+        if (kind === "ellipse") { o.name="Ellipse"; o.fillColor="#ff6b9d"; o.corner=Math.min(width,height)/2 }
+        else if (kind === "text") { o.name="Heading"; o.fillColor="#18171d"; o.copy="New headline"; o.corner=0 }
+        else if (kind === "frame") { o.name="Frame "+n; o.fillColor="#ffffff"; o.corner=12 }
+        layers.append(o); selectOnly(layers.count-1)
+    }
+    function beginDrawing(x, y) {
+        drawStartX=(x-artboard.x)/zoom;drawStartY=(y-artboard.y)/zoom;drawX=drawStartX;drawY=drawStartY
+        drawWidth=0;drawHeight=0;drawingShape=true;selectOnly(-1)
+    }
+    function updateDrawing(x, y) {
+        var logicalX=(x-artboard.x)/zoom
+        var logicalY=(y-artboard.y)/zoom
+        drawX=Math.min(drawStartX,logicalX);drawY=Math.min(drawStartY,logicalY)
+        drawWidth=Math.abs(logicalX-drawStartX);drawHeight=Math.abs(logicalY-drawStartY)
+    }
+    function finishDrawing() {
+        if(!drawingShape) return
+        drawingShape=false
+        if(drawWidth*zoom<3 || drawHeight*zoom<3) return
+        appendShape(tool,drawX,drawY,drawWidth,drawHeight)
     }
     function duplicate() {
         if (selected<0) return
@@ -196,10 +225,11 @@ ApplicationWindow {
     Shortcut { sequence:StandardKey.Undo; onActivated: win.undo() }
     Shortcut { sequence:StandardKey.Redo; onActivated: win.redo() }
     Shortcut { sequence:"V"; onActivated: tool="select" }
-    Shortcut { sequence:"R"; onActivated: addShape("rect") }
-    Shortcut { sequence:"O"; onActivated: addShape("ellipse") }
-    Shortcut { sequence:"T"; onActivated: addShape("text") }
-    Shortcut { sequence:"F"; onActivated: addShape("frame") }
+    Shortcut { sequence:"R"; onActivated: tool="rect" }
+    Shortcut { sequence:"O"; onActivated: tool="ellipse" }
+    Shortcut { sequence:"T"; onActivated: tool="text" }
+    Shortcut { sequence:"F"; onActivated: tool="frame" }
+    Shortcut { sequence:"Escape"; onActivated:{drawingShape=false;tool="select"} }
     Shortcut { sequence:"Ctrl+-"; onActivated: zoom=Math.max(.25,zoom-.1) }
     Shortcut { sequence:"Ctrl++"; onActivated: zoom=Math.min(2,zoom+.1) }
 
@@ -229,7 +259,7 @@ ApplicationWindow {
         contentItem:Text{text:b.glyph;color:win.tool===b.key?"white":"#b9bbc3";font.pixelSize:16;font.weight:Font.Medium;horizontalAlignment:Text.AlignHCenter;verticalAlignment:Text.AlignVCenter}
         background:Rectangle{color:win.tool===b.key?win.accent:(b.hovered?"#2a2c31":"transparent");radius:8}
         ToolTip.visible:hovered; ToolTip.text:key
-        onClicked:{win.tool=key;if(key==="rect"||key==="ellipse"||key==="text"||key==="frame")win.addShape(key)}
+        onClicked:win.tool=key
     }
     component Divider: Rectangle { color:win.line; implicitHeight:1; implicitWidth:1 }
     component NumBox: Rectangle {
@@ -299,7 +329,7 @@ ApplicationWindow {
                 }
                 Divider{Layout.fillWidth:true}
                 RowLayout{Layout.fillWidth:true;Layout.preferredHeight:42;Layout.leftMargin:14;Layout.rightMargin:10
-                    Text{text:"Layers";color:win.ink;font.pixelSize:12;font.weight:Font.DemiBold}Item{Layout.fillWidth:true}TinyButton{glyph:"+";onClicked:addShape("rect")}}
+                    Text{text:"Layers";color:win.ink;font.pixelSize:12;font.weight:Font.DemiBold}Item{Layout.fillWidth:true}TinyButton{glyph:"+";onClicked:tool="rect"}}
                 Divider{Layout.fillWidth:true}
                 ScrollView{Layout.fillWidth:true;Layout.fillHeight:true;clip:true
                     Column{width:parent.width;topPadding:8
@@ -319,13 +349,13 @@ ApplicationWindow {
                 }
                 Divider{Layout.fillWidth:true}
                 RowLayout{Layout.fillWidth:true;Layout.preferredHeight:44;Layout.leftMargin:10;Layout.rightMargin:10
-                    TinyButton{glyph:"+";onClicked:addShape("rect")}TinyButton{glyph:"◇";onClicked:duplicate()}Item{Layout.fillWidth:true}TinyButton{glyph:"⌫";onClicked:remove()}}
+                    TinyButton{glyph:"+";onClicked:tool="rect"}TinyButton{glyph:"◇";onClicked:duplicate()}Item{Layout.fillWidth:true}TinyButton{glyph:"⌫";onClicked:remove()}}
             }
         }
 
         Rectangle{
             id:workspace;Layout.fillWidth:true;Layout.fillHeight:true;color:"#292a2e";clip:true
-            HoverHandler{id:workspaceHover;blocking:false;onHoveredChanged:{if(hovered)cursorController.enterArtboard();else cursorController.leaveArtboard()}}
+            HoverHandler{id:workspaceHover;blocking:false;onHoveredChanged:syncWorkspaceCursor()}
             Canvas{id:gridCanvas;anchors.fill:parent;opacity:grid?1:0
                 onPaint:{var c=getContext("2d");c.reset();c.strokeStyle="#323339";c.lineWidth=1;var s=24*zoom;for(var x=0;x<width;x+=s){c.beginPath();c.moveTo(x,0);c.lineTo(x,height);c.stroke()}for(var y=0;y<height;y+=s){c.beginPath();c.moveTo(0,y);c.lineTo(width,y);c.stroke()}}
                 Connections{target:win;function onZoomChanged(){gridCanvas.requestPaint()}}
@@ -400,11 +430,23 @@ ApplicationWindow {
                     }
                 }}
             }
+            MouseArea{
+                anchors.fill:parent;z:500;enabled:isShapeTool(tool);cursorShape:Qt.CrossCursor
+                onPressed:function(mouse){beginDrawing(mouse.x,mouse.y)}
+                onPositionChanged:function(mouse){if(pressed)updateDrawing(mouse.x,mouse.y)}
+                onReleased:function(mouse){updateDrawing(mouse.x,mouse.y);finishDrawing()}
+                onCanceled:{drawingShape=false}
+            }
+            Rectangle{
+                visible:drawingShape;x:artboard.x+drawX*zoom;y:artboard.y+drawY*zoom;width:drawWidth*zoom;height:drawHeight*zoom;z:501
+                color:"#336c5ce7";border.color:win.accent;border.width:1
+                radius:tool==="ellipse"?Math.min(width,height)/2:(tool==="frame"?12*zoom:Math.min(6,Math.min(width,height)/2))
+            }
             Rectangle{
                 visible:marqueeActive;width:marqueeWidth;height:marqueeHeight;x:marqueeX;y:marqueeY
                 color:"#334a90e2";border.color:"#4a90e2";border.width:1;z:1000
             }
-            Row{anchors.bottom:parent.bottom;anchors.horizontalCenter:parent.horizontalCenter;anchors.bottomMargin:18;spacing:2;padding:4
+            Row{anchors.bottom:parent.bottom;anchors.horizontalCenter:parent.horizontalCenter;anchors.bottomMargin:18;spacing:2;padding:4;z:600
                 Rectangle{anchors.fill:parent;anchors.margins:-4;color:"#191a1ded";radius:10;border.color:win.line;z:-1}
                 TinyButton{glyph:"−";onClicked:zoom=Math.max(.25,zoom-.1)}Text{width:54;height:30;text:Math.round(zoom*100)+"%";color:"#d7d8dc";font.pixelSize:11;horizontalAlignment:Text.AlignHCenter;verticalAlignment:Text.AlignVCenter}TinyButton{glyph:"+";onClicked:zoom=Math.min(2,zoom+.1)}Divider{height:18;anchors.verticalCenter:parent.verticalCenter}TinyButton{glyph:"#";onClicked:grid=!grid}
             }
