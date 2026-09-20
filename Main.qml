@@ -6,11 +6,29 @@ import QtQuick.Dialogs
 ApplicationWindow {
     id: win
     width: 1440; height: 900; minimumWidth: 1100; minimumHeight: 700
-    visible: true; title: "Linea — "+documentName+(documentModified?" *":""); color: "#111214"
-    readonly property color panel: "#191a1d"
-    readonly property color line: "#2b2d32"
-    readonly property color muted: "#92959e"
-    readonly property color ink: "#f4f4f5"
+    visible: true; title: "Linea — "+documentName+(documentModified?" *":""); color: systemDark?"#111214":"#eceef1"
+    readonly property bool systemDark:Application.styleHints.colorScheme===Qt.ColorScheme.Dark
+    palette.window:systemDark?"#191a1d":"#f4f4f5"
+    palette.windowText:systemDark?"#f4f4f5":"#202124"
+    palette.base:systemDark?"#232429":"#ffffff"
+    palette.alternateBase:systemDark?"#292a30":"#eceef1"
+    palette.text:systemDark?"#f4f4f5":"#202124"
+    palette.button:systemDark?"#232429":"#f4f4f5"
+    palette.buttonText:systemDark?"#f4f4f5":"#202124"
+    palette.highlight:accent
+    palette.highlightedText:"#ffffff"
+    palette.placeholderText:systemDark?"#92959e":"#74777f"
+    readonly property color panel:systemDark?"#191a1d":"#f7f7f8"
+    readonly property color line:systemDark?"#2b2d32":"#d7d8dc"
+    readonly property color muted:systemDark?"#92959e":"#696c74"
+    readonly property color ink:systemDark?"#f4f4f5":"#202124"
+    readonly property color surface:systemDark?"#232429":"#ffffff"
+    readonly property color hoverSurface:systemDark?"#303238":"#e8e9ed"
+    readonly property color selectedSurface:systemDark?"#302d49":"#e7e3ff"
+    readonly property color subtleInk:systemDark?"#c7c9ce":"#4f525a"
+    readonly property color workspaceBackground:systemDark?"#292a2e":"#dedfe3"
+    readonly property color gridLine:systemDark?"#323339":"#cfd1d6"
+    readonly property color controlBorder:systemDark?"#484a50":"#c9cbd1"
     readonly property color accent: "#6c5ce7"
     property int selected: 0
     property var selection: [0]
@@ -359,27 +377,27 @@ ApplicationWindow {
     component TinyButton: AbstractButton {
         id:b; property string glyph:""; implicitWidth:30; implicitHeight:30; hoverEnabled:true
         contentItem:Text{text:b.glyph;color:b.hovered?"white":win.muted;font.pixelSize:14;horizontalAlignment:Text.AlignHCenter;verticalAlignment:Text.AlignVCenter}
-        background:Rectangle{color:b.hovered?"#303238":"transparent";radius:7}
+        background:Rectangle{color:b.hovered?win.hoverSurface:"transparent";radius:7}
     }
     component ToolButton: AbstractButton {
         id:b; property string glyph:""; property string key:""; implicitWidth:36; implicitHeight:36; hoverEnabled:true
-        contentItem:Text{text:b.glyph;color:win.tool===b.key?"white":"#b9bbc3";font.pixelSize:16;font.weight:Font.Medium;horizontalAlignment:Text.AlignHCenter;verticalAlignment:Text.AlignVCenter}
-        background:Rectangle{color:win.tool===b.key?win.accent:(b.hovered?"#2a2c31":"transparent");radius:8}
+        contentItem:Text{text:b.glyph;color:win.tool===b.key?"white":win.subtleInk;font.pixelSize:16;font.weight:Font.Medium;horizontalAlignment:Text.AlignHCenter;verticalAlignment:Text.AlignVCenter}
+        background:Rectangle{color:win.tool===b.key?win.accent:(b.hovered?win.hoverSurface:"transparent");radius:8}
         ToolTip.visible:hovered; ToolTip.text:key
         onClicked:win.tool=key
     }
     component Divider: Rectangle { color:win.line; implicitHeight:1; implicitWidth:1 }
     component NumBox: Rectangle {
         id:box; property string label:"X"; property real number:0; signal edited(real number)
-        Layout.fillWidth:true; implicitWidth:112; implicitHeight:32; color:"#232429"; border.color:field.activeFocus?win.accent:"#303238"; radius:7
+        Layout.fillWidth:true; implicitWidth:112; implicitHeight:32; color:win.surface; border.color:field.activeFocus?win.accent:win.controlBorder; radius:7
         RowLayout{anchors.fill:parent;anchors.leftMargin:9;anchors.rightMargin:6;spacing:5
-            Text{text:box.label;color:"#777a83";font.pixelSize:11;Layout.preferredWidth:label.length?13:0}
-            TextInput{id:field;Layout.fillWidth:true;color:"#e0e1e4";font.pixelSize:11;text:Math.round(box.number*10)/10;selectByMouse:true;validator:DoubleValidator{bottom:-9999;top:9999} onEditingFinished:box.edited(parseFloat(text)||0)}
+            Text{text:box.label;color:win.muted;font.pixelSize:11;Layout.preferredWidth:label.length?13:0}
+            TextInput{id:field;Layout.fillWidth:true;color:win.ink;font.pixelSize:11;text:Math.round(box.number*10)/10;selectByMouse:true;validator:DoubleValidator{bottom:-9999;top:9999} onEditingFinished:box.edited(parseFloat(text)||0)}
         }
     }
     component Section: ColumnLayout {
         property string heading:"Section"; Layout.fillWidth:true; Layout.leftMargin:16;Layout.rightMargin:16;Layout.topMargin:14;Layout.bottomMargin:14;spacing:10
-        Text{text:parent.heading;color:"#e8e8ea";font.pixelSize:11;font.weight:Font.DemiBold}
+        Text{text:parent.heading;color:win.ink;font.pixelSize:11;font.weight:Font.DemiBold}
     }
 
     Action{id:newDocumentAction;text:"New";shortcut:"Ctrl+N";onTriggered:newDocument()}
@@ -424,7 +442,7 @@ ApplicationWindow {
         }
         RowLayout{anchors.right:parent.right;anchors.rightMargin:12;anchors.verticalCenter:parent.verticalCenter;spacing:6
                 TinyButton{glyph:"↶"} TinyButton{glyph:"↷"} Divider{height:22}
-                AbstractButton{id:zoomBtn;implicitWidth:68;implicitHeight:30;hoverEnabled:true;contentItem:Text{text:Math.round(win.zoom*100)+"%";color:"#c7c9cf";font.pixelSize:12;horizontalAlignment:Text.AlignHCenter;verticalAlignment:Text.AlignVCenter} background:Rectangle{color:zoomBtn.hovered?"#2b2d32":"transparent";radius:7} onClicked:zoom=zoom===1?.75:1}
+                AbstractButton{id:zoomBtn;implicitWidth:68;implicitHeight:30;hoverEnabled:true;contentItem:Text{text:Math.round(win.zoom*100)+"%";color:win.subtleInk;font.pixelSize:12;horizontalAlignment:Text.AlignHCenter;verticalAlignment:Text.AlignVCenter} background:Rectangle{color:zoomBtn.hovered?win.hoverSurface:"transparent";radius:7} onClicked:zoom=zoom===1?.75:1}
                 Button{text:"Share";implicitWidth:72;implicitHeight:32;contentItem:Text{text:parent.text;color:"white";font.pixelSize:12;font.weight:Font.DemiBold;horizontalAlignment:Text.AlignHCenter;verticalAlignment:Text.AlignVCenter} background:Rectangle{color:parent.hovered?"#7b6fea":win.accent;radius:8}}
                 Rectangle{width:30;height:30;radius:15;color:"#f2b84b";Text{anchors.centerIn:parent;text:"H";color:"#3b2b09";font.pixelSize:12;font.bold:true}}
         }
@@ -443,10 +461,10 @@ ApplicationWindow {
                         width:parent.width;leftPadding:8;rightPadding:8;bottomPadding:8
                         Repeater{model:pages;delegate:Rectangle{
                             required property int index;required property string pageName
-                            width:parent.width-16;height:34;radius:6;color:index===currentPage?"#292a30":(pageHover.containsMouse?"#23252a":"transparent")
+                            width:parent.width-16;height:34;radius:6;color:index===currentPage?win.selectedSurface:(pageHover.containsMouse?win.hoverSurface:"transparent")
                             RowLayout{anchors.fill:parent;anchors.leftMargin:10;anchors.rightMargin:8;spacing:8
-                                Text{text:"◇";color:index===currentPage?"#bdb6ff":win.muted;font.pixelSize:11}
-                                Text{text:pageName;color:index===currentPage?"white":"#b8bac1";font.pixelSize:12;Layout.fillWidth:true;elide:Text.ElideRight}
+                                Text{text:"◇";color:index===currentPage?win.accent:win.muted;font.pixelSize:11}
+                                Text{text:pageName;color:index===currentPage?win.ink:win.subtleInk;font.pixelSize:12;Layout.fillWidth:true;elide:Text.ElideRight}
                                 Text{visible:index===currentPage;text:"•";color:win.accent;font.pixelSize:14}
                             }
                             MouseArea{id:pageHover;anchors.fill:parent;hoverEnabled:true;onClicked:switchPage(index)}
@@ -454,8 +472,8 @@ ApplicationWindow {
                     }
                 }
                 Rectangle{
-                    id:pageSplitter;Layout.fillWidth:true;Layout.preferredHeight:7;color:splitterMouse.containsMouse||splitterMouse.pressed?"#383a42":"transparent"
-                    Rectangle{anchors.centerIn:parent;width:32;height:3;radius:2;color:splitterMouse.containsMouse||splitterMouse.pressed?win.accent:"#36383e"}
+                    id:pageSplitter;Layout.fillWidth:true;Layout.preferredHeight:7;color:splitterMouse.containsMouse||splitterMouse.pressed?win.hoverSurface:"transparent"
+                    Rectangle{anchors.centerIn:parent;width:32;height:3;radius:2;color:splitterMouse.containsMouse||splitterMouse.pressed?win.accent:win.line}
                     MouseArea{
                         id:splitterMouse;anchors.fill:parent;hoverEnabled:true;cursorShape:Qt.SplitVCursor
                         property real pressY:0;property real pressHeight:0
@@ -473,13 +491,13 @@ ApplicationWindow {
                         Column{id:layersColumn;width:parent.width;topPadding:8
                             Repeater{model:layers;delegate:Rectangle{
                                 required property int index;required property string name;required property string type;required property bool shown;required property bool locked
-                                width:parent.width;height:38;radius:6;color:win.isSelected(index)?"#302d49":(hover.containsMouse?"#23252a":"transparent")
+                                width:parent.width;height:38;radius:6;color:win.isSelected(index)?win.selectedSurface:(hover.containsMouse?win.hoverSurface:"transparent")
                                 Rectangle{visible:win.isSelected(index);width:2;height:22;radius:1;color:win.accent;anchors.left:parent.left;anchors.verticalCenter:parent.verticalCenter}
                                 RowLayout{anchors.fill:parent;anchors.leftMargin:10;anchors.rightMargin:8;spacing:8
-                                    Text{text:type==="text"?"T":(type==="ellipse"?"○":type==="frame"?"#":"□");color:win.isSelected(index)?"#bdb6ff":win.muted;font.pixelSize:12;Layout.preferredWidth:18;horizontalAlignment:Text.AlignHCenter}
-                                    Text{text:name;color:win.isSelected(index)?"white":"#c7c9ce";font.pixelSize:12;elide:Text.ElideRight;Layout.fillWidth:true}
+                                    Text{text:type==="text"?"T":(type==="ellipse"?"○":type==="frame"?"#":"□");color:win.isSelected(index)?win.accent:win.muted;font.pixelSize:12;Layout.preferredWidth:18;horizontalAlignment:Text.AlignHCenter}
+                                    Text{text:name;color:win.isSelected(index)?win.ink:win.subtleInk;font.pixelSize:12;elide:Text.ElideRight;Layout.fillWidth:true}
                                     Text{visible:locked;text:"⌑";color:win.muted;font.pixelSize:11}
-                                    Text{text:shown?"●":"○";color:shown?"#777a82":"#44464d";font.pixelSize:8;MouseArea{anchors.fill:parent;anchors.margins:-7;onClicked:function(m){m.accepted=true;win.setLayerShown(index,!shown)}}}
+                                    Text{text:shown?"●":"○";color:shown?win.muted:win.line;font.pixelSize:8;MouseArea{anchors.fill:parent;anchors.margins:-7;onClicked:function(m){m.accepted=true;win.setLayerShown(index,!shown)}}}
                                 }
                                 MouseArea{id:hover;anchors.fill:parent;hoverEnabled:true;z:-1;onClicked:function(mouse){win.selectLayerFromList(index,mouse.modifiers)}}
                             }}
@@ -493,11 +511,11 @@ ApplicationWindow {
         }
 
         Rectangle{
-            id:workspace;Layout.fillWidth:true;Layout.fillHeight:true;color:"#292a2e";clip:true
+            id:workspace;Layout.fillWidth:true;Layout.fillHeight:true;color:win.workspaceBackground;clip:true
             HoverHandler{id:workspaceHover;blocking:false;onHoveredChanged:syncWorkspaceCursor()}
             Canvas{id:gridCanvas;anchors.fill:parent;opacity:grid?1:0
-                onPaint:{var c=getContext("2d");c.reset();c.strokeStyle="#323339";c.lineWidth=1;var s=24*zoom;for(var x=0;x<width;x+=s){c.beginPath();c.moveTo(x,0);c.lineTo(x,height);c.stroke()}for(var y=0;y<height;y+=s){c.beginPath();c.moveTo(0,y);c.lineTo(width,y);c.stroke()}}
-                Connections{target:win;function onZoomChanged(){gridCanvas.requestPaint()}}
+                onPaint:{var c=getContext("2d");c.reset();c.strokeStyle=win.gridLine;c.lineWidth=1;var s=24*zoom;for(var x=0;x<width;x+=s){c.beginPath();c.moveTo(x,0);c.lineTo(x,height);c.stroke()}for(var y=0;y<height;y+=s){c.beginPath();c.moveTo(0,y);c.lineTo(width,y);c.stroke()}}
+                Connections{target:win;function onZoomChanged(){gridCanvas.requestPaint()}function onSystemDarkChanged(){gridCanvas.requestPaint()}}
             }
             MouseArea{
                 anchors.fill:parent;enabled:tool==="select";cursorShape:Qt.ArrowCursor
@@ -513,7 +531,7 @@ ApplicationWindow {
                     onPositionChanged:function(mouse){if(pressed){var p=mapToItem(workspace,mouse.x,mouse.y);updateMarquee(p.x,p.y)}}
                     onReleased:finishMarquee()
                 }
-                Text{text:pages.get(currentPage).pageName;color:"#aaa9b0";font.pixelSize:11;x:2;y:-24}
+                Text{text:pages.get(currentPage).pageName;color:win.muted;font.pixelSize:11;x:2;y:-24}
                 Repeater{model:layers;delegate:Item{
                     id:item;required property int index;required property string type;required property string fillColor;required property string strokeColor;required property real strokeSize;required property real corner;required property real cornerTL;required property real cornerTR;required property real cornerBL;required property real cornerBR;required property real fontSize;required property string fontFamily;required property int fontWeight;required property real letterSpacing;required property real lineHeight;required property int textAlign;required property real alpha;required property bool shown;required property bool locked;required property string copy;required property real px;required property real py;required property real sw;required property real sh
                     property bool inlineEditing:false
@@ -640,8 +658,8 @@ ApplicationWindow {
                 color:"#334a90e2";border.color:"#4a90e2";border.width:1;z:1000
             }
             Row{anchors.bottom:parent.bottom;anchors.horizontalCenter:parent.horizontalCenter;anchors.bottomMargin:18;spacing:2;padding:4;z:600
-                Rectangle{anchors.fill:parent;anchors.margins:-4;color:"#191a1ded";radius:10;border.color:win.line;z:-1}
-                TinyButton{glyph:"−";onClicked:zoom=Math.max(.25,zoom-.1)}Text{width:54;height:30;text:Math.round(zoom*100)+"%";color:"#d7d8dc";font.pixelSize:11;horizontalAlignment:Text.AlignHCenter;verticalAlignment:Text.AlignVCenter}TinyButton{glyph:"+";onClicked:zoom=Math.min(2,zoom+.1)}Divider{height:18;anchors.verticalCenter:parent.verticalCenter}TinyButton{glyph:"#";onClicked:grid=!grid}
+                Rectangle{anchors.fill:parent;anchors.margins:-4;color:win.panel;opacity:.94;radius:10;border.color:win.line;z:-1}
+                TinyButton{glyph:"−";onClicked:zoom=Math.max(.25,zoom-.1)}Text{width:54;height:30;text:Math.round(zoom*100)+"%";color:win.ink;font.pixelSize:11;horizontalAlignment:Text.AlignHCenter;verticalAlignment:Text.AlignVCenter}TinyButton{glyph:"+";onClicked:zoom=Math.min(2,zoom+.1)}Divider{height:18;anchors.verticalCenter:parent.verticalCenter}TinyButton{glyph:"#";onClicked:grid=!grid}
             }
         }
 
@@ -650,7 +668,7 @@ ApplicationWindow {
             ScrollView{anchors.fill:parent;clip:true
                 ColumnLayout{width:284;spacing:0
                     RowLayout{Layout.fillWidth:true;Layout.preferredHeight:46;Layout.leftMargin:16;Layout.rightMargin:10
-                        Text{text:"Design";color:"white";font.pixelSize:12;font.weight:Font.DemiBold}Text{text:"Prototype";color:win.muted;font.pixelSize:12;Layout.leftMargin:16}Item{Layout.fillWidth:true}TinyButton{glyph:"›";onClicked:rightOpen=false}}
+                        Text{text:"Design";color:win.ink;font.pixelSize:12;font.weight:Font.DemiBold}Text{text:"Prototype";color:win.muted;font.pixelSize:12;Layout.leftMargin:16}Item{Layout.fillWidth:true}TinyButton{glyph:"›";onClicked:rightOpen=false}}
                     Divider{Layout.fillWidth:true}
                     Text{visible:selected<0;text:"Select a layer to edit its properties";color:win.muted;font.pixelSize:11;wrapMode:Text.Wrap;Layout.fillWidth:true;Layout.margins:16}
                     Section{heading:"Position";visible:selected>=0
@@ -664,8 +682,8 @@ ApplicationWindow {
                         TextField{
                             property var editHistoryState:null
                             property string originalText:""
-                            Layout.fillWidth:true;implicitHeight:34;text:value("copy","");placeholderText:"Text";color:"#dedfe3";font.pixelSize:11;selectByMouse:true
-                            background:Rectangle{color:"#232429";border.color:parent.activeFocus?win.accent:"#303238";radius:7}
+                            Layout.fillWidth:true;implicitHeight:34;text:value("copy","");placeholderText:"Text";color:win.ink;font.pixelSize:11;selectByMouse:true
+                            background:Rectangle{color:win.surface;border.color:parent.activeFocus?win.accent:win.controlBorder;radius:7}
                             onActiveFocusChanged:{
                                 if(activeFocus){editHistoryState=snapshotState();originalText=text}
                                 else if(editHistoryState){
@@ -677,7 +695,7 @@ ApplicationWindow {
                             onAccepted:focus=false
                         }
                         RowLayout{Layout.fillWidth:true;spacing:8
-                            TextField{Layout.fillWidth:true;implicitHeight:32;text:value("fontFamily","Arial");placeholderText:"Font family";color:"#dedfe3";font.pixelSize:11;selectByMouse:true;background:Rectangle{color:"#232429";border.color:parent.activeFocus?win.accent:"#303238";radius:7}onEditingFinished:setValue("fontFamily",text)}
+                            TextField{Layout.fillWidth:true;implicitHeight:32;text:value("fontFamily","Arial");placeholderText:"Font family";color:win.ink;font.pixelSize:11;selectByMouse:true;background:Rectangle{color:win.surface;border.color:parent.activeFocus?win.accent:win.controlBorder;radius:7}onEditingFinished:setValue("fontFamily",text)}
                             NumBox{label:"S";number:value("fontSize",16);Layout.preferredWidth:76;onEdited:function(v){setValue("fontSize",Math.max(1,v))}}
                         }
                         RowLayout{Layout.fillWidth:true;spacing:8
@@ -695,12 +713,12 @@ ApplicationWindow {
                     Divider{Layout.fillWidth:true;visible:selectedType==="text"}
                     Section{heading:selectedType==="text"?"Text color":"Fill";visible:selected>=0
                         RowLayout{Layout.fillWidth:true;spacing:8
-                            Rectangle{width:28;height:28;radius:7;color:value("fillColor","#fff");border.color:"#484a50"}
-                            TextField{Layout.fillWidth:true;implicitHeight:32;text:value("fillColor","#fff");color:"#dedfe3";font.pixelSize:11;selectByMouse:true;background:Rectangle{color:"#232429";border.color:parent.activeFocus?win.accent:"#303238";radius:7} onEditingFinished:setValue("fillColor",text)}
+                            Rectangle{width:28;height:28;radius:7;color:value("fillColor","#fff");border.color:win.controlBorder}
+                            TextField{Layout.fillWidth:true;implicitHeight:32;text:value("fillColor","#fff");color:win.ink;font.pixelSize:11;selectByMouse:true;background:Rectangle{color:win.surface;border.color:parent.activeFocus?win.accent:win.controlBorder;radius:7} onEditingFinished:setValue("fillColor",text)}
                             Text{text:Math.round(value("alpha",1)*100)+"%";color:win.muted;font.pixelSize:11}
                         }
                         Slider{Layout.fillWidth:true;from:0;to:1;value:win.value("alpha",1);onMoved:setValue("alpha",value)
-                            background:Rectangle{x:parent.leftPadding;y:parent.topPadding+parent.availableHeight/2-2;width:parent.availableWidth;height:3;radius:2;color:"#35373d";Rectangle{width:parent.width*parent.parent.visualPosition;height:parent.height;radius:2;color:win.accent}}
+                            background:Rectangle{x:parent.leftPadding;y:parent.topPadding+parent.availableHeight/2-2;width:parent.availableWidth;height:3;radius:2;color:win.line;Rectangle{width:parent.width*parent.parent.visualPosition;height:parent.height;radius:2;color:win.accent}}
                             handle:Rectangle{x:parent.leftPadding+parent.visualPosition*(parent.availableWidth-width);y:parent.topPadding+parent.availableHeight/2-height/2;width:13;height:13;radius:7;color:"white";border.color:win.accent}
                         }
                     }
@@ -717,8 +735,8 @@ ApplicationWindow {
                     Divider{Layout.fillWidth:true;visible:selectedType==="rect" || selectedType==="frame"}
                     Section{heading:selectedType==="text"?"Text border":"Border";visible:selected>=0
                         RowLayout{Layout.fillWidth:true;spacing:8
-                            Rectangle{width:28;height:28;radius:7;color:value("strokeColor","#fff");border.color:"#484a50"}
-                            TextField{Layout.fillWidth:true;implicitHeight:32;text:value("strokeColor","#fff");color:"#dedfe3";font.pixelSize:11;selectByMouse:true;background:Rectangle{color:"#232429";border.color:parent.activeFocus?win.accent:"#303238";radius:7}onEditingFinished:setValue("strokeColor",text)}
+                            Rectangle{width:28;height:28;radius:7;color:value("strokeColor","#fff");border.color:win.controlBorder}
+                            TextField{Layout.fillWidth:true;implicitHeight:32;text:value("strokeColor","#fff");color:win.ink;font.pixelSize:11;selectByMouse:true;background:Rectangle{color:win.surface;border.color:parent.activeFocus?win.accent:win.controlBorder;radius:7}onEditingFinished:setValue("strokeColor",text)}
                             NumBox{label:"W";number:value("strokeSize",0);Layout.preferredWidth:70;onEdited:function(v){setValue("strokeSize",Math.max(0,v))}}
                         }
                     }
