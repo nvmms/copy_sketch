@@ -30,13 +30,20 @@ ApplicationWindow {
     property real marqueeY: 0
     property real marqueeWidth: 0
     property real marqueeHeight: 0
+    property var pageUndoStacks: []
+    property var pageRedoStacks: []
+    property bool restoringHistory: false
 
     function value(role, fallback) {
         if (selected < 0 || selected >= layers.count) return fallback
         var v = layers.get(selected)[role]
         return v === undefined ? fallback : v
     }
-    function setValue(role, v) { if (selected >= 0 && selected < layers.count) layers.setProperty(selected, role, v) }
+    function setValue(role, v) {
+        if (selected < 0 || selected >= layers.count || layers.get(selected)[role] === v) return
+        recordHistory()
+        layers.setProperty(selected, role, v)
+    }
     function selectOnly(index) {
         selected=index
         selection=index>=0?[index]:[]
@@ -64,6 +71,7 @@ ApplicationWindow {
     }
     function finishMarquee() { marqueeActive=false }
     function addShape(kind) {
+        recordHistory()
         var n = nextId++
         var o = {shapeId:n, type:kind, name:"Rectangle", px:150+(n*19)%210, py:120+(n*23)%180,
             sw:180, sh:120, fillColor:"#6c5ce7", strokeColor:"#ffffff", strokeSize:0,
@@ -75,6 +83,7 @@ ApplicationWindow {
     }
     function duplicate() {
         if (selected<0) return
+        recordHistory()
         var s=layers.get(selected)
         layers.append({shapeId:nextId++,type:s.type,name:s.name+" copy",px:s.px+18,py:s.py+18,sw:s.sw,sh:s.sh,
             fillColor:s.fillColor,strokeColor:s.strokeColor,strokeSize:s.strokeSize,corner:s.corner,alpha:s.alpha,shown:s.shown,locked:false,copy:s.copy})
@@ -82,6 +91,7 @@ ApplicationWindow {
     }
     function remove() {
         if(!selection.length) return
+        recordHistory()
         var targets=selection.slice().sort(function(a,b){return b-a})
         for(var i=0;i<targets.length;i++) if(targets[i]>=0&&targets[i]<layers.count) layers.remove(targets[i])
         selectOnly(Math.min(targets[targets.length-1],layers.count-1))
@@ -95,6 +105,58 @@ ApplicationWindow {
         var result=[]
         for(var i=0;i<layers.count;i++) result.push(layerData(layers.get(i)))
         return result
+    }
+    function snapshotState() {
+        return {document:snapshotLayers(),selected:selected,selection:selection.slice()}
+    }
+    function pushUndoState(state) {
+        if(restoringHistory) return
+        var stacks=pageUndoStacks.slice()
+        var history=(stacks[currentPage] || []).slice()
+        history.push(state)
+        if(history.length>100) history.shift()
+        stacks[currentPage]=history
+        pageUndoStacks=stacks
+        var redoStacks=pageRedoStacks.slice()
+        redoStacks[currentPage]=[]
+        pageRedoStacks=redoStacks
+    }
+    function recordHistory() { pushUndoState(snapshotState()) }
+    function restoreState(state) {
+        restoringHistory=true
+        layers.clear()
+        for(var i=0;i<state.document.length;i++) layers.append(state.document[i])
+        selection=state.selection.slice()
+        selected=state.selected
+        pageDocuments[currentPage]=snapshotLayers()
+        restoringHistory=false
+    }
+    function undo() {
+        var history=(pageUndoStacks[currentPage] || []).slice()
+        if(!history.length) return
+        var current=snapshotState()
+        var previous=history.pop()
+        var undoStacks=pageUndoStacks.slice();undoStacks[currentPage]=history;pageUndoStacks=undoStacks
+        var redoStacks=pageRedoStacks.slice()
+        var future=(redoStacks[currentPage] || []).slice();future.push(current)
+        redoStacks[currentPage]=future;pageRedoStacks=redoStacks
+        restoreState(previous)
+    }
+    function redo() {
+        var redoStacks=pageRedoStacks.slice()
+        var future=(redoStacks[currentPage] || []).slice()
+        if(!future.length) return
+        var current=snapshotState()
+        var next=future.pop()
+        redoStacks[currentPage]=future;pageRedoStacks=redoStacks
+        var undoStacks=pageUndoStacks.slice()
+        var history=(undoStacks[currentPage] || []).slice();history.push(current)
+        undoStacks[currentPage]=history;pageUndoStacks=undoStacks
+        restoreState(next)
+    }
+    function setLayerShown(index, shown) {
+        if(index<0 || index>=layers.count || layers.get(index).shown===shown) return
+        recordHistory();layers.setProperty(index,"shown",shown)
     }
     function saveCurrentPage() {
         if(currentPage>=0 && currentPage<pages.count) pageDocuments[currentPage]=snapshotLayers()
@@ -112,6 +174,8 @@ ApplicationWindow {
         saveCurrentPage()
         pages.append({pageName:"Page "+nextPage++})
         pageDocuments.push([])
+        var undoStacks=pageUndoStacks.slice();undoStacks.push([]);pageUndoStacks=undoStacks
+        var redoStacks=pageRedoStacks.slice();redoStacks.push([]);pageRedoStacks=redoStacks
         currentPage=pages.count-1
         layers.clear()
         selectOnly(-1)
@@ -122,11 +186,15 @@ ApplicationWindow {
             {shapeId:nextId++,type:"rect",name:"Button component",px:230,py:190,sw:220,sh:56,fillColor:"#6c5ce7",strokeColor:"#ffffff",strokeSize:0,corner:14,alpha:1,shown:true,locked:false,copy:""},
             {shapeId:nextId++,type:"text",name:"Button label",px:278,py:203,sw:130,sh:30,fillColor:"#ffffff",strokeColor:"#000000",strokeSize:0,corner:0,alpha:1,shown:true,locked:false,copy:"Primary button"}
         ]]
+        pageUndoStacks=[[],[]]
+        pageRedoStacks=[[],[]]
     }
 
     Shortcut { sequence:"Delete"; onActivated: win.remove() }
     Shortcut { sequence:"Backspace"; onActivated: win.remove() }
     Shortcut { sequence:"Ctrl+D"; onActivated: win.duplicate() }
+    Shortcut { sequence:StandardKey.Undo; onActivated: win.undo() }
+    Shortcut { sequence:StandardKey.Redo; onActivated: win.redo() }
     Shortcut { sequence:"V"; onActivated: tool="select" }
     Shortcut { sequence:"R"; onActivated: addShape("rect") }
     Shortcut { sequence:"O"; onActivated: addShape("ellipse") }
@@ -243,7 +311,7 @@ ApplicationWindow {
                                 Text{text:type==="text"?"T":(type==="ellipse"?"○":type==="frame"?"#":"□");color:win.isSelected(index)?"#bdb6ff":win.muted;font.pixelSize:12;Layout.preferredWidth:18;horizontalAlignment:Text.AlignHCenter}
                                 Text{text:name;color:win.isSelected(index)?"white":"#c7c9ce";font.pixelSize:12;elide:Text.ElideRight;Layout.fillWidth:true}
                                 Text{visible:locked;text:"⌑";color:win.muted;font.pixelSize:11}
-                                Text{text:shown?"●":"○";color:shown?"#777a82":"#44464d";font.pixelSize:8;MouseArea{anchors.fill:parent;anchors.margins:-7;onClicked:function(m){m.accepted=true;layers.setProperty(index,"shown",!shown)}}}
+                                Text{text:shown?"●":"○";color:shown?"#777a82":"#44464d";font.pixelSize:8;MouseArea{anchors.fill:parent;anchors.margins:-7;onClicked:function(m){m.accepted=true;win.setLayerShown(index,!shown)}}}
                             }
                             MouseArea{id:hover;anchors.fill:parent;hoverEnabled:true;z:-1;onClicked:win.selectOnly(index)}
                         }}
@@ -288,11 +356,14 @@ ApplicationWindow {
                         property real dragStartX:0
                         property real dragStartY:0
                         property var dragOrigins:[]
+                        property var dragHistoryState:null
+                        property bool dragChanged:false
                         onPressed:function(mouse){
                             if(tool!=="select") return
                             if(!isSelected(item.index)) selectOnly(item.index)
                             var p=mapToItem(workspace,mouse.x,mouse.y)
                             dragStartX=p.x;dragStartY=p.y
+                            dragHistoryState=snapshotState();dragChanged=false
                             var origins=[]
                             for(var i=0;i<selection.length;i++){
                                 var layerIndex=selection[i]
@@ -308,20 +379,22 @@ ApplicationWindow {
                             var p=mapToItem(workspace,mouse.x,mouse.y)
                             var dx=(p.x-dragStartX)/zoom
                             var dy=(p.y-dragStartY)/zoom
+                            if(Math.abs(dx)>0.01 || Math.abs(dy)>0.01) dragChanged=true
                             for(var i=0;i<dragOrigins.length;i++){
                                 var origin=dragOrigins[i]
                                 layers.setProperty(origin.index,"px",origin.x+dx)
                                 layers.setProperty(origin.index,"py",origin.y+dy)
                             }
                         }
-                        onReleased:dragOrigins=[]
+                        onReleased:{if(dragChanged&&dragHistoryState)pushUndoState(dragHistoryState);dragOrigins=[];dragHistoryState=null;dragChanged=false}
                     }
                     Rectangle{visible:isSelected(item.index);anchors.fill:parent;color:"transparent";border.color:"#6657e8";border.width:1;z:20
                         Repeater{model:[{xx:-3,yy:-3},{xx:item.width-3,yy:-3},{xx:-3,yy:item.height-3},{xx:item.width-3,yy:item.height-3}];delegate:Rectangle{required property var modelData;x:modelData.xx;y:modelData.yy;width:7;height:7;radius:2;color:"white";border.color:"#6657e8"}}
                         Rectangle{width:14;height:14;anchors.right:parent.right;anchors.bottom:parent.bottom;anchors.margins:-7;color:"transparent";z:30
-                            MouseArea{anchors.fill:parent;anchors.margins:-4;cursorShape:Qt.SizeFDiagCursor;property real sx;property real sy;property real ow;property real oh
-                                onPressed:function(m){sx=m.x;sy=m.y;ow=item.sw;oh=item.sh}
-                                onPositionChanged:function(m){if(pressed){layers.setProperty(index,"sw",Math.round(Math.max(16,ow+(m.x-sx)/zoom)));layers.setProperty(index,"sh",Math.round(Math.max(16,oh+(m.y-sy)/zoom)))}}
+                            MouseArea{anchors.fill:parent;anchors.margins:-4;cursorShape:Qt.SizeFDiagCursor;property real sx;property real sy;property real ow;property real oh;property var resizeHistoryState:null;property bool resizeChanged:false
+                                onPressed:function(m){sx=m.x;sy=m.y;ow=item.sw;oh=item.sh;resizeHistoryState=snapshotState();resizeChanged=false}
+                                onPositionChanged:function(m){if(pressed){var nw=Math.round(Math.max(16,ow+(m.x-sx)/zoom));var nh=Math.round(Math.max(16,oh+(m.y-sy)/zoom));if(nw!==item.sw||nh!==item.sh)resizeChanged=true;layers.setProperty(index,"sw",nw);layers.setProperty(index,"sh",nh)}}
+                                onReleased:{if(resizeChanged&&resizeHistoryState)pushUndoState(resizeHistoryState);resizeHistoryState=null;resizeChanged=false}
                             }
                         }
                     }
