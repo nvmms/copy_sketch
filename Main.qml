@@ -36,6 +36,15 @@ ApplicationWindow {
     property string tool: "select"
     property real zoom: 1
     property bool grid: true
+    property bool rulers: true
+    property real canvasPanX: 0
+    property real canvasPanY: 0
+    property bool canvasPanning: false
+    property real canvasPanStartX: 0
+    property real canvasPanStartY: 0
+    property real canvasPanOriginX: 0
+    property real canvasPanOriginY: 0
+    property bool canvasPanMoved: false
     property bool rightOpen: true
     property int nextId: 8
     property int nextGroupId: 1
@@ -67,6 +76,24 @@ ApplicationWindow {
     property real drawWidth: 0
     property real drawHeight: 0
     readonly property string selectedType: selected>=0 && selected<layers.count ? layers.get(selected).type : ""
+
+    function rulerMajorStep() {
+        var steps=[10,20,50,100,200,500,1000,2000]
+        for(var i=0;i<steps.length;i++)if(steps[i]*zoom>=80)return steps[i]
+        return steps[steps.length-1]
+    }
+    function beginCanvasPan(x, y) {
+        canvasPanning=true;canvasPanStartX=x;canvasPanStartY=y
+        canvasPanOriginX=canvasPanX;canvasPanOriginY=canvasPanY;canvasPanMoved=false
+    }
+    function updateCanvasPan(x, y) {
+        if(!canvasPanning)return
+        if(Math.abs(x-canvasPanStartX)>=3||Math.abs(y-canvasPanStartY)>=3)canvasPanMoved=true
+        if(!canvasPanMoved)return
+        canvasPanX=canvasPanOriginX+x-canvasPanStartX
+        canvasPanY=canvasPanOriginY+y-canvasPanStartY
+    }
+    function finishCanvasPan() { var moved=canvasPanMoved;canvasPanning=false;canvasPanMoved=false;return moved }
 
     function value(role, fallback) {
         if (selected < 0 || selected >= layers.count) return fallback
@@ -532,6 +559,7 @@ ApplicationWindow {
         }
         Menu{title:"View"
             MenuItem{text:grid?"Hide Grid":"Show Grid";onTriggered:grid=!grid}
+            MenuItem{text:rulers?"Hide Rulers":"Show Rulers";onTriggered:rulers=!rulers}
             MenuSeparator{}
             MenuItem{text:"Zoom In";onTriggered:zoom=Math.min(2,zoom+.1)}
             MenuItem{text:"Zoom Out";onTriggered:zoom=Math.max(.25,zoom-.1)}
@@ -682,18 +710,24 @@ ApplicationWindow {
                 Connections{target:win;function onZoomChanged(){gridCanvas.requestPaint()}function onSystemDarkChanged(){gridCanvas.requestPaint()}}
             }
             MouseArea{
-                anchors.fill:parent;enabled:tool==="select";cursorShape:Qt.ArrowCursor
-                onPressed:function(mouse){beginMarquee(mouse.x,mouse.y)}
-                onPositionChanged:function(mouse){if(pressed)updateMarquee(mouse.x,mouse.y)}
-                onReleased:finishMarquee()
+                anchors.fill:parent;enabled:tool==="select";acceptedButtons:Qt.LeftButton|Qt.MiddleButton
+                cursorShape:canvasPanning?Qt.ClosedHandCursor:Qt.OpenHandCursor
+                onPressed:function(mouse){if(mouse.button===Qt.LeftButton)selectOnly(-1);beginCanvasPan(mouse.x,mouse.y)}
+                onPositionChanged:function(mouse){if(pressed)updateCanvasPan(mouse.x,mouse.y)}
+                onReleased:finishCanvasPan()
+                onCanceled:finishCanvasPan()
             }
             Rectangle{
-                id:artboard;width:920*zoom;height:580*zoom;anchors.centerIn:parent;color:"#f6f5f8";border.color:"#babac2"
+                id:artboard;width:920*zoom;height:580*zoom;anchors.centerIn:parent
+                anchors.horizontalCenterOffset:win.canvasPanX;anchors.verticalCenterOffset:win.canvasPanY
+                color:"#f6f5f8";border.color:"#babac2"
                 MouseArea{
-                    anchors.fill:parent;enabled:tool==="select";cursorShape:Qt.ArrowCursor
-                    onPressed:function(mouse){var p=mapToItem(workspace,mouse.x,mouse.y);beginMarquee(p.x,p.y)}
-                    onPositionChanged:function(mouse){if(pressed){var p=mapToItem(workspace,mouse.x,mouse.y);updateMarquee(p.x,p.y)}}
-                    onReleased:finishMarquee()
+                    anchors.fill:parent;enabled:tool==="select";acceptedButtons:Qt.LeftButton|Qt.MiddleButton
+                    cursorShape:canvasPanning?Qt.ClosedHandCursor:Qt.OpenHandCursor
+                    onPressed:function(mouse){var p=mapToItem(workspace,mouse.x,mouse.y);beginCanvasPan(p.x,p.y)}
+                    onPositionChanged:function(mouse){if(!pressed)return;var p=mapToItem(workspace,mouse.x,mouse.y);updateCanvasPan(p.x,p.y)}
+                    onReleased:finishCanvasPan()
+                    onCanceled:finishCanvasPan()
                 }
                 Text{text:pages.get(currentPage).pageName;color:win.muted;font.pixelSize:11;x:2;y:-24}
                 Repeater{model:layers;delegate:Item{
@@ -820,6 +854,57 @@ ApplicationWindow {
             Rectangle{
                 visible:marqueeActive;width:marqueeWidth;height:marqueeHeight;x:marqueeX;y:marqueeY
                 color:"#334a90e2";border.color:"#4a90e2";border.width:1;z:1000
+            }
+            Item{
+                id:rulerOverlay;anchors.fill:parent;visible:win.rulers;z:1200
+                readonly property int thickness:24
+                Canvas{
+                    id:horizontalRuler;x:rulerOverlay.thickness;width:parent.width-x;height:rulerOverlay.thickness
+                    onPaint:{
+                        var c=getContext("2d");c.reset();c.fillStyle=win.panel;c.fillRect(0,0,width,height)
+                        c.strokeStyle=win.line;c.lineWidth=1;c.beginPath();c.moveTo(0,height-.5);c.lineTo(width,height-.5);c.stroke()
+                        var major=win.rulerMajorStep();var minor=major/5
+                        var first=Math.floor((horizontalRuler.x-artboard.x)/(minor*win.zoom))*minor
+                        var last=(horizontalRuler.x+width-artboard.x)/win.zoom
+                        c.font="9px sans-serif";c.fillStyle=win.muted;c.textBaseline="top"
+                        for(var value=first;value<=last;value+=minor){
+                            var px=artboard.x+value*win.zoom-horizontalRuler.x
+                            var majorTick=Math.abs(value/major-Math.round(value/major))<.001
+                            var middleTick=Math.abs(value/(major/2)-Math.round(value/(major/2)))<.001
+                            var tick=majorTick?11:(middleTick?8:5)
+                            c.beginPath();c.moveTo(Math.round(px)+.5,height);c.lineTo(Math.round(px)+.5,height-tick);c.stroke()
+                            if(majorTick)c.fillText(String(Math.round(value)),px+3,2)
+                        }
+                    }
+                    onWidthChanged:requestPaint()
+                    Connections{target:win;function onZoomChanged(){horizontalRuler.requestPaint()}function onSystemDarkChanged(){horizontalRuler.requestPaint()}}
+                    Connections{target:artboard;function onXChanged(){horizontalRuler.requestPaint()}}
+                }
+                Canvas{
+                    id:verticalRuler;y:rulerOverlay.thickness;width:rulerOverlay.thickness;height:parent.height-y
+                    onPaint:{
+                        var c=getContext("2d");c.reset();c.fillStyle=win.panel;c.fillRect(0,0,width,height)
+                        c.strokeStyle=win.line;c.lineWidth=1;c.beginPath();c.moveTo(width-.5,0);c.lineTo(width-.5,height);c.stroke()
+                        var major=win.rulerMajorStep();var minor=major/5
+                        var first=Math.floor((verticalRuler.y-artboard.y)/(minor*win.zoom))*minor
+                        var last=(verticalRuler.y+height-artboard.y)/win.zoom
+                        c.font="9px sans-serif";c.fillStyle=win.muted;c.textBaseline="top"
+                        for(var value=first;value<=last;value+=minor){
+                            var py=artboard.y+value*win.zoom-verticalRuler.y
+                            var majorTick=Math.abs(value/major-Math.round(value/major))<.001
+                            var middleTick=Math.abs(value/(major/2)-Math.round(value/(major/2)))<.001
+                            var tick=majorTick?11:(middleTick?8:5)
+                            c.beginPath();c.moveTo(width,Math.round(py)+.5);c.lineTo(width-tick,Math.round(py)+.5);c.stroke()
+                            if(majorTick){c.save();c.translate(2,py-3);c.rotate(-Math.PI/2);c.fillText(String(Math.round(value)),0,0);c.restore()}
+                        }
+                    }
+                    onHeightChanged:requestPaint()
+                    Connections{target:win;function onZoomChanged(){verticalRuler.requestPaint()}function onSystemDarkChanged(){verticalRuler.requestPaint()}}
+                    Connections{target:artboard;function onYChanged(){verticalRuler.requestPaint()}}
+                }
+                Rectangle{x:0;y:0;width:rulerOverlay.thickness;height:rulerOverlay.thickness;color:win.panel;border.color:win.line
+                    Rectangle{anchors.centerIn:parent;width:5;height:5;radius:1;color:win.muted}
+                }
             }
             Row{anchors.bottom:parent.bottom;anchors.horizontalCenter:parent.horizontalCenter;anchors.bottomMargin:18;spacing:2;padding:4;z:600
                 Rectangle{anchors.fill:parent;anchors.margins:-4;color:win.panel;opacity:.94;radius:10;border.color:win.line;z:-1}
