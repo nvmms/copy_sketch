@@ -259,7 +259,7 @@ ApplicationWindow {
         for(var i=0;i<layers.count;i++) {
             var s=layers.get(i)
             if(!s.shown || s.locked) continue
-            var left=artboard.x+s.px*zoom, top=artboard.y+s.py*zoom
+            var left=layerScene.originX+s.px*zoom, top=layerScene.originY+s.py*zoom
             var right=left+s.sw*zoom, bottom=top+s.sh*zoom
             if(right>=marqueeX && left<=marqueeX+marqueeWidth && bottom>=marqueeY && top<=marqueeY+marqueeHeight)
                 picked.push(i)
@@ -323,7 +323,7 @@ ApplicationWindow {
         layerTreeRevision++
     }
     function syncWorkspaceCursor() {
-        if(!workspaceHover.hovered || isShapeTool(tool)) cursorController.leaveArtboard()
+        if(!canvasHover.hovered || isShapeTool(tool)) cursorController.leaveArtboard()
         else cursorController.enterArtboard()
     }
     onToolChanged:syncWorkspaceCursor()
@@ -354,15 +354,15 @@ ApplicationWindow {
         selectOnly(insertedIndex)
     }
     function beginDrawing(x, y) {
-        drawStartX=(x-artboard.x)/zoom;drawStartY=(y-artboard.y)/zoom;drawX=drawStartX;drawY=drawStartY
+        drawStartX=(x-layerScene.originX)/zoom;drawStartY=(y-layerScene.originY)/zoom;drawX=drawStartX;drawY=drawStartY
         var hitBoardId=tool==="board"?0:boardIdAtPoint(drawStartX,drawStartY)
         drawingParentBoardId=0
         console.info("[board-parent] begin build=",boardDebugBuild,"tool=",tool,"workspacePoint=",x,y,"logicalPoint=",drawStartX,drawStartY,"startHitBoard=",hitBoardId)
         drawWidth=0;drawHeight=0;drawingShape=true;selectOnly(-1)
     }
     function updateDrawing(x, y, modifiers) {
-        var logicalX=(x-artboard.x)/zoom
-        var logicalY=(y-artboard.y)/zoom
+        var logicalX=(x-layerScene.originX)/zoom
+        var logicalY=(y-layerScene.originY)/zoom
         var deltaX=logicalX-drawStartX
         var deltaY=logicalY-drawStartY
         var constrainProportions=(tool==="rect" || tool==="ellipse") && (modifiers & Qt.ControlModifier)
@@ -832,11 +832,11 @@ ApplicationWindow {
         }
 
         Rectangle{
-            id:workspace;Layout.fillWidth:true;Layout.fillHeight:true;color:win.workspaceBackground;clip:true
-            HoverHandler{id:workspaceHover;blocking:false;onHoveredChanged:syncWorkspaceCursor()}
-            Canvas{id:gridCanvas;anchors.fill:parent;opacity:grid?1:0
+            id:canvas;Layout.fillWidth:true;Layout.fillHeight:true;color:win.workspaceBackground;clip:true
+            HoverHandler{id:canvasHover;blocking:false;onHoveredChanged:syncWorkspaceCursor()}
+            Canvas{id:gridRenderer;anchors.fill:parent;opacity:grid?1:0
                 onPaint:{var c=getContext("2d");c.reset();c.strokeStyle=win.gridLine;c.lineWidth=1;var s=24*zoom;for(var x=0;x<width;x+=s){c.beginPath();c.moveTo(x,0);c.lineTo(x,height);c.stroke()}for(var y=0;y<height;y+=s){c.beginPath();c.moveTo(0,y);c.lineTo(width,y);c.stroke()}}
-                Connections{target:win;function onZoomChanged(){gridCanvas.requestPaint()}function onSystemDarkChanged(){gridCanvas.requestPaint()}}
+                Connections{target:win;function onZoomChanged(){gridRenderer.requestPaint()}function onSystemDarkChanged(){gridRenderer.requestPaint()}}
             }
             MouseArea{
                 anchors.fill:parent;enabled:tool==="select";acceptedButtons:Qt.LeftButton|Qt.MiddleButton
@@ -846,21 +846,12 @@ ApplicationWindow {
                 onReleased:finishCanvasPan()
                 onCanceled:finishCanvasPan()
             }
-            Rectangle{
-                id:artboard;width:920*zoom;height:580*zoom;anchors.centerIn:parent
-                anchors.horizontalCenterOffset:win.canvasPanX;anchors.verticalCenterOffset:win.canvasPanY
-                color:"#f6f5f8";border.color:"#babac2"
-                MouseArea{
-                    anchors.fill:parent;enabled:tool==="select";acceptedButtons:Qt.LeftButton|Qt.MiddleButton
-                    cursorShape:canvasPanning?Qt.ClosedHandCursor:Qt.OpenHandCursor
-                    onPressed:function(mouse){var p=mapToItem(workspace,mouse.x,mouse.y);beginCanvasPan(p.x,p.y)}
-                    onPositionChanged:function(mouse){if(!pressed)return;var p=mapToItem(workspace,mouse.x,mouse.y);updateCanvasPan(p.x,p.y)}
-                    onReleased:finishCanvasPan()
-                    onCanceled:finishCanvasPan()
-                }
-                Text{text:pages.get(currentPage).pageName;color:win.muted;font.pixelSize:11;x:2;y:-24}
+            Item{
+                id:layerScene;anchors.fill:parent
+                readonly property real originX:width/2-460*zoom+win.canvasPanX
+                readonly property real originY:height/2-290*zoom+win.canvasPanY
                 Repeater{model:layers;delegate:Item{
-                    id:item;required property int index;required property int shapeId;required property string type;required property string fillColor;required property string strokeColor;required property real strokeSize;required property real corner;required property real cornerTL;required property real cornerTR;required property real cornerBL;required property real cornerBR;required property real fontSize;required property string fontFamily;required property int fontWeight;required property real letterSpacing;required property real lineHeight;required property int textAlign;required property real alpha;required property bool shown;required property bool locked;required property string copy;required property real px;required property real py;required property real sw;required property real sh
+                    id:item;required property int index;required property int shapeId;required property string type;required property string name;required property string fillColor;required property string strokeColor;required property real strokeSize;required property real corner;required property real cornerTL;required property real cornerTR;required property real cornerBL;required property real cornerBR;required property real fontSize;required property string fontFamily;required property int fontWeight;required property real letterSpacing;required property real lineHeight;required property int textAlign;required property real alpha;required property bool shown;required property bool locked;required property string copy;required property real px;required property real py;required property real sw;required property real sh
                     property bool inlineEditing:false
                     property var inlineHistoryState:null
                     property string inlineOriginalText:""
@@ -879,7 +870,8 @@ ApplicationWindow {
                         if(win.activeInlineEditor===item)win.activeInlineEditor=null
                     }
                     Connections{target:win;function onSelectionChanged(){if(item.inlineEditing&&!win.isSelected(item.index))item.finishInlineEditing(false)}}
-                    x:px*zoom;y:py*zoom;width:sw*zoom;height:sh*zoom;visible:win.layerIsEffectivelyShown(index);opacity:alpha;z:win.renderedLayerZ(shapeId,index)
+                    x:layerScene.originX+px*zoom;y:layerScene.originY+py*zoom;width:sw*zoom;height:sh*zoom;visible:win.layerIsEffectivelyShown(index);opacity:alpha;z:win.renderedLayerZ(shapeId,index)
+                    Text{visible:item.type==="board";x:2;y:-24;color:win.muted;font.pixelSize:11;text:item.name;z:50}
                     Rectangle{anchors.fill:parent;color:item.type==="text"?"transparent":item.fillColor;border.color:item.strokeSize>0?item.strokeColor:"transparent";border.width:item.strokeSize*zoom;radius:item.type==="ellipse"?Math.min(width,height)/2:(item.type==="board"?item.corner*zoom:0);topLeftRadius:item.type==="rect"?item.cornerTL*zoom:radius;topRightRadius:item.type==="rect"?item.cornerTR*zoom:radius;bottomLeftRadius:item.type==="rect"?item.cornerBL*zoom:radius;bottomRightRadius:item.type==="rect"?item.cornerBR*zoom:radius}
                     Text{visible:item.type==="text"&&!item.inlineEditing;anchors.fill:parent;text:item.copy;color:item.fillColor;font.family:item.fontFamily;font.pixelSize:item.fontSize*zoom;font.weight:item.fontWeight;font.letterSpacing:item.letterSpacing*zoom;lineHeight:item.lineHeight*zoom;lineHeightMode:Text.FixedHeight;horizontalAlignment:item.textAlign;verticalAlignment:Text.AlignVCenter;wrapMode:Text.Wrap;style:item.strokeSize>0?Text.Outline:Text.Normal;styleColor:item.strokeColor}
                     MouseArea{
@@ -893,7 +885,7 @@ ApplicationWindow {
                         onPressed:function(mouse){
                             if(tool!=="select") return
                             if(!isSelected(item.index)) selectLayerOrGroup(item.index)
-                            var p=mapToItem(workspace,mouse.x,mouse.y)
+                            var p=mapToItem(canvas,mouse.x,mouse.y)
                             dragStartX=p.x;dragStartY=p.y
                             dragHistoryState=snapshotState();dragChanged=false
                             var origins=[]
@@ -909,7 +901,7 @@ ApplicationWindow {
                         }
                         onPositionChanged:function(mouse){
                             if(!pressed||tool!=="select") return
-                            var p=mapToItem(workspace,mouse.x,mouse.y)
+                            var p=mapToItem(canvas,mouse.x,mouse.y)
                             var dx=(p.x-dragStartX)/zoom
                             var dy=(p.y-dragStartY)/zoom
                             if(Math.abs(dx)>0.01 || Math.abs(dy)>0.01) dragChanged=true
@@ -979,7 +971,7 @@ ApplicationWindow {
                 onCanceled:{drawingShape=false}
             }
             Rectangle{
-                visible:drawingShape;x:artboard.x+drawX*zoom;y:artboard.y+drawY*zoom;width:drawWidth*zoom;height:drawHeight*zoom;z:501
+                visible:drawingShape;x:layerScene.originX+drawX*zoom;y:layerScene.originY+drawY*zoom;width:drawWidth*zoom;height:drawHeight*zoom;z:501
                 color:"#336c5ce7";border.color:win.accent;border.width:1
                 radius:tool==="ellipse"?Math.min(width,height)/2:(tool==="board"?12*zoom:Math.min(6,Math.min(width,height)/2))
             }
@@ -996,11 +988,11 @@ ApplicationWindow {
                         var c=getContext("2d");c.reset();c.fillStyle=win.panel;c.fillRect(0,0,width,height)
                         c.strokeStyle=win.line;c.lineWidth=1;c.beginPath();c.moveTo(0,height-.5);c.lineTo(width,height-.5);c.stroke()
                         var major=win.rulerMajorStep();var minor=major/5
-                        var first=Math.floor((horizontalRuler.x-artboard.x)/(minor*win.zoom))*minor
-                        var last=(horizontalRuler.x+width-artboard.x)/win.zoom
+                        var first=Math.floor((horizontalRuler.x-layerScene.originX)/(minor*win.zoom))*minor
+                        var last=(horizontalRuler.x+width-layerScene.originX)/win.zoom
                         c.font="9px sans-serif";c.fillStyle=win.muted;c.textBaseline="top"
                         for(var value=first;value<=last;value+=minor){
-                            var px=artboard.x+value*win.zoom-horizontalRuler.x
+                            var px=layerScene.originX+value*win.zoom-horizontalRuler.x
                             var majorTick=Math.abs(value/major-Math.round(value/major))<.001
                             var middleTick=Math.abs(value/(major/2)-Math.round(value/(major/2)))<.001
                             var tick=majorTick?11:(middleTick?8:5)
@@ -1010,7 +1002,7 @@ ApplicationWindow {
                     }
                     onWidthChanged:requestPaint()
                     Connections{target:win;function onZoomChanged(){horizontalRuler.requestPaint()}function onSystemDarkChanged(){horizontalRuler.requestPaint()}}
-                    Connections{target:artboard;function onXChanged(){horizontalRuler.requestPaint()}}
+                    Connections{target:layerScene;function onOriginXChanged(){horizontalRuler.requestPaint()}}
                 }
                 Canvas{
                     id:verticalRuler;y:rulerOverlay.thickness;width:rulerOverlay.thickness;height:parent.height-y
@@ -1018,11 +1010,11 @@ ApplicationWindow {
                         var c=getContext("2d");c.reset();c.fillStyle=win.panel;c.fillRect(0,0,width,height)
                         c.strokeStyle=win.line;c.lineWidth=1;c.beginPath();c.moveTo(width-.5,0);c.lineTo(width-.5,height);c.stroke()
                         var major=win.rulerMajorStep();var minor=major/5
-                        var first=Math.floor((verticalRuler.y-artboard.y)/(minor*win.zoom))*minor
-                        var last=(verticalRuler.y+height-artboard.y)/win.zoom
+                        var first=Math.floor((verticalRuler.y-layerScene.originY)/(minor*win.zoom))*minor
+                        var last=(verticalRuler.y+height-layerScene.originY)/win.zoom
                         c.font="9px sans-serif";c.fillStyle=win.muted;c.textBaseline="top"
                         for(var value=first;value<=last;value+=minor){
-                            var py=artboard.y+value*win.zoom-verticalRuler.y
+                            var py=layerScene.originY+value*win.zoom-verticalRuler.y
                             var majorTick=Math.abs(value/major-Math.round(value/major))<.001
                             var middleTick=Math.abs(value/(major/2)-Math.round(value/(major/2)))<.001
                             var tick=majorTick?11:(middleTick?8:5)
@@ -1032,7 +1024,7 @@ ApplicationWindow {
                     }
                     onHeightChanged:requestPaint()
                     Connections{target:win;function onZoomChanged(){verticalRuler.requestPaint()}function onSystemDarkChanged(){verticalRuler.requestPaint()}}
-                    Connections{target:artboard;function onYChanged(){verticalRuler.requestPaint()}}
+                    Connections{target:layerScene;function onOriginYChanged(){verticalRuler.requestPaint()}}
                 }
                 Rectangle{x:0;y:0;width:rulerOverlay.thickness;height:rulerOverlay.thickness;color:win.panel;border.color:win.line
                     Rectangle{anchors.centerIn:parent;width:5;height:5;radius:1;color:win.muted}
