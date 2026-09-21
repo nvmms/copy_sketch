@@ -599,7 +599,7 @@ ApplicationWindow {
                     Item{width:layersScroll.availableWidth;height:Math.max(layersColumn.implicitHeight,layersScroll.availableHeight)
                         MouseArea{anchors.fill:parent;onClicked:win.selectOnly(-1)}
                         Column{id:layersColumn;width:parent.width;topPadding:8
-                            move:Transition{NumberAnimation{properties:"y";duration:90;easing.type:Easing.OutCubic}}
+                            move:Transition{enabled:!win.layerReordering;NumberAnimation{properties:"y";duration:90;easing.type:Easing.OutCubic}}
                             Repeater{model:layers;delegate:Rectangle{
                                 id:layerRow
                                 required property int index;required property string name;required property string type;required property bool shown;required property bool locked
@@ -610,9 +610,9 @@ ApplicationWindow {
                                 property var dragHistoryState:null
                                 property bool dragChanged:false
                                 width:parent.width;height:38;radius:6;color:win.isSelected(index)?win.selectedSurface:(hover.containsMouse?win.hoverSurface:"transparent")
-                                opacity:layerDrag.active ? 0.72 : 1;z:layerDrag.active?100:0
-                                border.color:layerDrag.active?win.accent:"transparent";border.width:layerDrag.active?1:0
-                                transform:Translate{y:layerDrag.active?layerRow.dragAbsoluteY-layerRow.y:0}
+                                opacity:hover.dragging ? 0.72 : 1;z:hover.dragging?100:0
+                                border.color:hover.dragging?win.accent:"transparent";border.width:hover.dragging?1:0
+                                transform:Translate{y:hover.dragging?layerRow.dragAbsoluteY-layerRow.y:0}
                                 Rectangle{visible:win.isSelected(index);width:2;height:22;radius:1;color:win.accent;anchors.left:parent.left;anchors.verticalCenter:parent.verticalCenter}
                                 RowLayout{anchors.fill:parent;anchors.leftMargin:10;anchors.rightMargin:8;spacing:8
                                     Text{text:type==="text"?"T":(type==="ellipse"?"○":type==="frame"?"#":"□");color:win.isSelected(index)?win.accent:win.muted;font.pixelSize:12;Layout.preferredWidth:18;horizontalAlignment:Text.AlignHCenter}
@@ -627,29 +627,39 @@ ApplicationWindow {
                                     Text{visible:locked;text:"⌑";color:win.muted;font.pixelSize:11}
                                     Text{text:shown?"●":"○";color:shown?win.muted:win.line;font.pixelSize:8;MouseArea{anchors.fill:parent;anchors.margins:-7;onClicked:function(m){m.accepted=true;win.setLayerShown(index,!shown)}}}
                                 }
-                                MouseArea{id:hover;anchors.fill:parent;hoverEnabled:true;z:-1;onClicked:function(mouse){win.selectLayerFromList(index,mouse.modifiers)}onDoubleClicked:{win.selectOnly(index);layerRow.renaming=true}}
-                                DragHandler{id:layerDrag;target:null;enabled:!layerRow.renaming;xAxis.enabled:false
-                                    onActiveChanged:{
-                                        if(active){
+                                MouseArea{id:hover;anchors.fill:parent;hoverEnabled:true;z:-1;enabled:!layerRow.renaming
+                                    property bool dragging:false
+                                    property bool suppressClick:false
+                                    property real pressPointerY:0
+                                    onPressed:function(mouse){pressPointerY=mapToItem(layersColumn,mouse.x,mouse.y).y;dragging=false;suppressClick=false}
+                                    onPositionChanged:function(mouse){
+                                        if(!pressed)return
+                                        var pointerY=mapToItem(layersColumn,mouse.x,mouse.y).y
+                                        if(!dragging&&Math.abs(pointerY-pressPointerY)>=6){
+                                            dragging=true;suppressClick=true
                                             if(!win.isSelected(layerRow.index))win.selectLayerOrGroup(layerRow.index)
                                             win.beginLayerReorder()
                                             layerRow.dragOriginY=layerRow.y;layerRow.dragAbsoluteY=layerRow.y
                                             layerRow.dragHistoryState=win.snapshotState();layerRow.dragChanged=false
-                                        }else{
-                                            if(layerRow.dragChanged&&layerRow.dragHistoryState)win.pushUndoState(layerRow.dragHistoryState)
-                                            win.finishLayerReorder()
-                                            layerRow.dragHistoryState=null;layerRow.dragChanged=false
                                         }
-                                    }
-                                    onTranslationChanged:{
-                                        if(!active)return
-                                        var absoluteY=layerRow.dragOriginY+activeTranslation.y
+                                        if(!dragging)return
+                                        var absoluteY=layerRow.dragOriginY+pointerY-pressPointerY
                                         layerRow.dragAbsoluteY=absoluteY
                                         var targetIndex=Math.max(0,Math.min(layers.count-1,Math.floor((absoluteY+layerRow.height/2-layersColumn.topPadding)/layerRow.height)))
                                         if(targetIndex!==layerRow.index&&win.reorderLayerLive(layerRow.index,targetIndex)){
                                             layerRow.dragChanged=true
                                         }
                                     }
+                                    onReleased:{
+                                        if(dragging){
+                                            if(layerRow.dragChanged&&layerRow.dragHistoryState)win.pushUndoState(layerRow.dragHistoryState)
+                                            win.finishLayerReorder()
+                                            layerRow.dragHistoryState=null;layerRow.dragChanged=false;dragging=false
+                                        }
+                                    }
+                                    onCanceled:{if(dragging)win.finishLayerReorder();layerRow.dragHistoryState=null;layerRow.dragChanged=false;dragging=false}
+                                    onClicked:function(mouse){if(suppressClick){suppressClick=false;return}win.selectLayerFromList(index,mouse.modifiers)}
+                                    onDoubleClicked:{win.selectOnly(index);layerRow.renaming=true}
                                 }
                             }}
                         }
