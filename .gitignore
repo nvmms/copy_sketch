@@ -51,3 +51,6 @@ Desktop.ini
 *.temp
 
 AGENTS.md
+
+# Local upstream icon catalog; only assets/icons/ is shipped and committed.
+/assets/lucide-all/

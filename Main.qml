@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Controls.impl as ControlsImpl
 import QtQuick.Layouts
 import QtQuick.Dialogs
 
@@ -601,17 +602,26 @@ ApplicationWindow {
         ListElement { pageName:"Components" }
     }
 
-    component TinyButton: AbstractButton {
-        id:b; property string glyph:""; implicitWidth:30; implicitHeight:30; hoverEnabled:true
-        contentItem:Text{text:b.glyph;color:b.hovered?"white":win.muted;font.pixelSize:14;horizontalAlignment:Text.AlignHCenter;verticalAlignment:Text.AlignVCenter}
-        background:Rectangle{color:b.hovered?win.hoverSurface:"transparent";radius:7}
+    component TinyButton: Button {
+        id:b; property string iconName:""; property color normalIconColor:win.muted; implicitWidth:30; implicitHeight:30; hoverEnabled:true;opacity:1;padding:0
+        display:AbstractButton.IconOnly
+        icon.source:iconName.length ? "qrc:/assets/icons/"+iconName+".svg" : ""
+        icon.width:16;icon.height:16;icon.color:b.hovered&&b.enabled?win.ink:b.normalIconColor
+        background:Rectangle{color:"transparent";radius:7}
     }
-    component ToolButton: AbstractButton {
-        id:b; property string glyph:""; property string key:""; implicitWidth:36; implicitHeight:36; hoverEnabled:true
-        contentItem:Text{text:b.glyph;color:win.tool===b.key?"white":win.subtleInk;font.pixelSize:16;font.weight:Font.Medium;horizontalAlignment:Text.AlignHCenter;verticalAlignment:Text.AlignVCenter}
+    component ToolButton: Button {
+        id:b; property string iconName:""; property string key:""; implicitWidth:36; implicitHeight:36; hoverEnabled:true
+        display:AbstractButton.IconOnly
+        icon.source:"qrc:/assets/icons/"+iconName+".svg"
+        icon.width:18;icon.height:18;icon.color:win.tool===b.key?"white":win.subtleInk
         background:Rectangle{color:win.tool===b.key?win.accent:(b.hovered?win.hoverSurface:"transparent");radius:8}
         ToolTip.visible:hovered; ToolTip.text:key
         onClicked:win.tool=key
+    }
+    component StaticIcon: Item {
+        id:root;property string iconName:"";property color iconColor:win.muted;property int iconSize:18
+        implicitWidth:22;implicitHeight:22
+        ControlsImpl.IconImage{anchors.centerIn:parent;width:root.iconSize;height:root.iconSize;sourceSize.width:root.iconSize;sourceSize.height:root.iconSize;source:"qrc:/assets/icons/"+root.iconName+".svg";color:root.iconColor}
     }
     component Divider: Rectangle { color:win.line; implicitHeight:1; implicitWidth:1 }
     component NumBox: Rectangle {
@@ -675,11 +685,11 @@ ApplicationWindow {
         }
         Divider{x:251;anchors.top:parent.top;anchors.bottom:parent.bottom;anchors.topMargin:8;anchors.bottomMargin:8}
         RowLayout{anchors.centerIn:parent;spacing:4
-                ToolButton{glyph:"↖";key:"select"} ToolButton{glyph:"▣";key:"board"} ToolButton{glyph:"□";key:"rect"}
-                ToolButton{glyph:"○";key:"ellipse"} ToolButton{glyph:"T";key:"text"} ToolButton{glyph:"✎";key:"pen"}
+                ToolButton{iconName:"mouse-pointer-2";key:"select"} ToolButton{iconName:"frame";key:"board"} ToolButton{iconName:"square";key:"rect"}
+                ToolButton{iconName:"circle";key:"ellipse"} ToolButton{iconName:"type";key:"text"} ToolButton{iconName:"pen-tool";key:"pen"}
         }
         RowLayout{anchors.right:parent.right;anchors.rightMargin:12;anchors.verticalCenter:parent.verticalCenter;spacing:6
-                TinyButton{glyph:"↶"} TinyButton{glyph:"↷"} Divider{height:22}
+                TinyButton{iconName:"undo-2"} TinyButton{iconName:"redo-2"} Divider{height:22}
                 AbstractButton{id:zoomBtn;implicitWidth:68;implicitHeight:30;hoverEnabled:true;contentItem:Text{text:Math.round(win.zoom*100)+"%";color:win.subtleInk;font.pixelSize:12;horizontalAlignment:Text.AlignHCenter;verticalAlignment:Text.AlignVCenter} background:Rectangle{color:zoomBtn.hovered?win.hoverSurface:"transparent";radius:7} onClicked:zoom=zoom===1?.75:1}
                 Button{text:"Share";implicitWidth:72;implicitHeight:32;contentItem:Text{text:parent.text;color:"white";font.pixelSize:12;font.weight:Font.DemiBold;horizontalAlignment:Text.AlignHCenter;verticalAlignment:Text.AlignVCenter} background:Rectangle{color:parent.hovered?"#7b6fea":win.accent;radius:8}}
                 Rectangle{width:30;height:30;radius:15;color:"#f2b84b";Text{anchors.centerIn:parent;text:"H";color:"#3b2b09";font.pixelSize:12;font.bold:true}}
@@ -691,7 +701,7 @@ ApplicationWindow {
             Layout.preferredWidth:252;Layout.fillHeight:true;color:win.panel;border.color:win.line
             ColumnLayout{anchors.fill:parent;spacing:0
                 RowLayout{Layout.fillWidth:true;Layout.preferredHeight:46;Layout.leftMargin:14;Layout.rightMargin:10
-                    Text{text:"Pages";color:win.ink;font.pixelSize:12;font.weight:Font.DemiBold}Item{Layout.fillWidth:true}TinyButton{glyph:"+";onClicked:addPage()}}
+                    Text{text:"Pages";color:win.ink;font.pixelSize:12;font.weight:Font.DemiBold}Item{Layout.fillWidth:true}TinyButton{iconName:"plus";onClicked:addPage()}}
                 ScrollView{
                     Layout.fillWidth:true;Layout.preferredHeight:pagesPanelHeight;clip:true
                     contentWidth:availableWidth
@@ -701,7 +711,7 @@ ApplicationWindow {
                             required property int index;required property string pageName
                             width:parent.width-16;height:34;radius:6;color:index===currentPage?win.selectedSurface:(pageHover.containsMouse?win.hoverSurface:"transparent")
                             RowLayout{anchors.fill:parent;anchors.leftMargin:10;anchors.rightMargin:8;spacing:8
-                                Text{text:"◇";color:index===currentPage?win.accent:win.muted;font.pixelSize:11}
+                                StaticIcon{iconName:"file";iconColor:index===currentPage?win.accent:win.muted}
                                 Text{text:pageName;color:index===currentPage?win.ink:win.subtleInk;font.pixelSize:12;Layout.fillWidth:true;elide:Text.ElideRight}
                                 Text{visible:index===currentPage;text:"•";color:win.accent;font.pixelSize:14}
                             }
@@ -721,7 +731,7 @@ ApplicationWindow {
                 }
                 Divider{Layout.fillWidth:true}
                 RowLayout{Layout.fillWidth:true;Layout.preferredHeight:42;Layout.leftMargin:14;Layout.rightMargin:10
-                    Text{text:"Canvas";color:win.ink;font.pixelSize:12;font.weight:Font.DemiBold}Item{Layout.fillWidth:true}TinyButton{glyph:"+";onClicked:tool="rect"}}
+                    Text{text:"Layers";color:win.ink;font.pixelSize:12;font.weight:Font.DemiBold}Item{Layout.fillWidth:true}TinyButton{iconName:"plus";onClicked:tool="rect"}}
                 Divider{Layout.fillWidth:true}
                 ScrollView{
                     id:layersScroll
@@ -761,9 +771,8 @@ ApplicationWindow {
                                 transform:Translate{y:hover.dragging?layerRow.dragAbsoluteY-layerRow.y:0}
                                 Rectangle{visible:win.isSelected(index);width:2;height:22;radius:1;color:win.accent;anchors.left:parent.left;anchors.verticalCenter:parent.verticalCenter}
                                 RowLayout{anchors.fill:parent;anchors.leftMargin:parentBoardId?30:10;anchors.rightMargin:8;spacing:8
-                                    Text{visible:type==="board";text:collapsed?"▸":"▾";color:win.muted;font.pixelSize:12;Layout.preferredWidth:10
-                                        MouseArea{anchors.fill:parent;anchors.margins:-6;onClicked:function(mouse){mouse.accepted=true;win.toggleBoardCollapsed(index)}}}
-                                    Text{text:type==="text"?"T":(type==="ellipse"?"○":type==="board"?"▣":"□");color:win.isSelected(index)?win.accent:win.muted;font.pixelSize:12;Layout.preferredWidth:18;horizontalAlignment:Text.AlignHCenter}
+                                    TinyButton{visible:type==="board";implicitWidth:22;implicitHeight:24;icon.width:17;icon.height:17;iconName:collapsed?"chevron-right":"chevron-down";onClicked:win.toggleBoardCollapsed(index)}
+                                    StaticIcon{visible:type!=="board";implicitHeight:24;iconName:type==="text"?"type":(type==="ellipse"?"circle":"square");iconColor:win.isSelected(index)?win.accent:win.muted}
                                     Text{visible:!layerRow.renaming;text:name;color:win.isSelected(index)?win.ink:win.subtleInk;font.pixelSize:12;font.weight:type==="board"?Font.DemiBold:Font.Normal;elide:Text.ElideRight;Layout.fillWidth:true}
                                     TextField{id:renameField;visible:layerRow.renaming;Layout.fillWidth:true;implicitHeight:28;text:layerRow.name;selectByMouse:true
                                         onVisibleChanged:if(visible){forceActiveFocus();selectAll()}
@@ -771,9 +780,9 @@ ApplicationWindow {
                                         onActiveFocusChanged:if(layerRow.renaming&&!activeFocus)layerRow.finishRenaming(true)
                                         Keys.onEscapePressed:function(event){layerRow.finishRenaming(false);event.accepted=true}
                                     }
-                                    Text{visible:layerRow.rowGroupId>0;text:"⌘";color:win.accent;font.pixelSize:10}
-                                    Text{visible:locked;text:"⌑";color:win.muted;font.pixelSize:11}
-                                    Text{text:shown?"●":"○";color:shown?win.muted:win.line;font.pixelSize:8;MouseArea{anchors.fill:parent;anchors.margins:-7;onClicked:function(m){m.accepted=true;win.setLayerShown(index,!shown)}}}
+                                    StaticIcon{visible:layerRow.rowGroupId>0;implicitHeight:24;iconSize:17;iconName:"group";iconColor:win.accent}
+                                    StaticIcon{visible:locked;implicitHeight:24;iconSize:17;iconName:"lock"}
+                                    TinyButton{implicitWidth:24;implicitHeight:26;icon.width:18;icon.height:18;iconName:shown?"eye":"eye-off";normalIconColor:shown?win.muted:win.line;onClicked:win.setLayerShown(index,!shown)}
                                 }
                                 MouseArea{id:hover;anchors.fill:parent;hoverEnabled:true;z:-1;enabled:!layerRow.renaming
                                     property bool dragging:false
@@ -815,10 +824,10 @@ ApplicationWindow {
                 }
                 Divider{Layout.fillWidth:true}
                 RowLayout{Layout.fillWidth:true;Layout.preferredHeight:44;Layout.leftMargin:10;Layout.rightMargin:10
-                    TinyButton{glyph:"+";onClicked:tool="rect"}TinyButton{glyph:"◇";onClicked:duplicate()}
-                    TinyButton{glyph:"↓";onClicked:moveSelectedLayers(-1);ToolTip.visible:hovered;ToolTip.text:"Send backward"}
-                    TinyButton{glyph:"↑";onClicked:moveSelectedLayers(1);ToolTip.visible:hovered;ToolTip.text:"Bring forward"}
-                    Item{Layout.fillWidth:true}TinyButton{glyph:"⌫";onClicked:remove()}}
+                    TinyButton{iconName:"plus";onClicked:tool="rect"}TinyButton{iconName:"copy";onClicked:duplicate()}
+                    TinyButton{iconName:"send-to-back";onClicked:moveSelectedLayers(-1);ToolTip.visible:hovered;ToolTip.text:"Send backward"}
+                    TinyButton{iconName:"bring-to-front";onClicked:moveSelectedLayers(1);ToolTip.visible:hovered;ToolTip.text:"Bring forward"}
+                    Item{Layout.fillWidth:true}TinyButton{iconName:"trash";onClicked:remove()}}
             }
         }
 
@@ -1031,7 +1040,7 @@ ApplicationWindow {
             }
             Row{anchors.bottom:parent.bottom;anchors.horizontalCenter:parent.horizontalCenter;anchors.bottomMargin:18;spacing:2;padding:4;z:600
                 Rectangle{anchors.fill:parent;anchors.margins:-4;color:win.panel;opacity:.94;radius:10;border.color:win.line;z:-1}
-                TinyButton{glyph:"−";onClicked:zoom=Math.max(.25,zoom-.1)}Text{width:54;height:30;text:Math.round(zoom*100)+"%";color:win.ink;font.pixelSize:11;horizontalAlignment:Text.AlignHCenter;verticalAlignment:Text.AlignVCenter}TinyButton{glyph:"+";onClicked:zoom=Math.min(2,zoom+.1)}Divider{height:18;anchors.verticalCenter:parent.verticalCenter}TinyButton{glyph:"#";onClicked:grid=!grid}
+                TinyButton{iconName:"minus";onClicked:zoom=Math.max(.25,zoom-.1)}Text{width:54;height:30;text:Math.round(zoom*100)+"%";color:win.ink;font.pixelSize:11;horizontalAlignment:Text.AlignHCenter;verticalAlignment:Text.AlignVCenter}TinyButton{iconName:"plus";onClicked:zoom=Math.min(2,zoom+.1)}Divider{height:18;anchors.verticalCenter:parent.verticalCenter}TinyButton{iconName:"grid-3x3";onClicked:grid=!grid}
             }
         }
 
@@ -1040,7 +1049,7 @@ ApplicationWindow {
             ScrollView{anchors.fill:parent;clip:true
                 ColumnLayout{width:284;spacing:0
                     RowLayout{Layout.fillWidth:true;Layout.preferredHeight:46;Layout.leftMargin:16;Layout.rightMargin:10
-                        Text{text:"Design";color:win.ink;font.pixelSize:12;font.weight:Font.DemiBold}Text{text:"Prototype";color:win.muted;font.pixelSize:12;Layout.leftMargin:16}Item{Layout.fillWidth:true}TinyButton{glyph:"›";onClicked:rightOpen=false}}
+                        Text{text:"Design";color:win.ink;font.pixelSize:12;font.weight:Font.DemiBold}Text{text:"Prototype";color:win.muted;font.pixelSize:12;Layout.leftMargin:16}Item{Layout.fillWidth:true}TinyButton{iconName:"chevron-right";onClicked:rightOpen=false}}
                     Divider{Layout.fillWidth:true}
                     Text{visible:selected<0;text:"Select a layer to edit its properties";color:win.muted;font.pixelSize:11;wrapMode:Text.Wrap;Layout.fillWidth:true;Layout.margins:16}
                     Section{heading:"Position";visible:selected>=0
@@ -1077,9 +1086,9 @@ ApplicationWindow {
                         }
                         RowLayout{Layout.fillWidth:true;spacing:3
                             Text{text:"Align";color:win.muted;font.pixelSize:11;Layout.fillWidth:true}
-                            TinyButton{glyph:"≡";onClicked:setValue("textAlign",Text.AlignLeft)}
-                            TinyButton{glyph:"≣";onClicked:setValue("textAlign",Text.AlignHCenter)}
-                            TinyButton{glyph:"☰";onClicked:setValue("textAlign",Text.AlignRight)}
+                            TinyButton{iconName:"text-align-start";onClicked:setValue("textAlign",Text.AlignLeft)}
+                            TinyButton{iconName:"text-align-center";onClicked:setValue("textAlign",Text.AlignHCenter)}
+                            TinyButton{iconName:"text-align-end";onClicked:setValue("textAlign",Text.AlignRight)}
                         }
                     }
                     Divider{Layout.fillWidth:true;visible:selectedType==="text"}
@@ -1116,12 +1125,12 @@ ApplicationWindow {
                     Section{heading:"Layer";visible:selected>=0
                         RowLayout{Layout.fillWidth:true
                             CheckBox{text:"Locked";checked:value("locked",false);onToggled:setValue("locked",checked);contentItem:Text{leftPadding:parent.indicator.width+parent.spacing;text:parent.text;color:win.muted;font.pixelSize:11;verticalAlignment:Text.AlignVCenter}}
-                            Item{Layout.fillWidth:true}TinyButton{glyph:"◇";onClicked:duplicate()}TinyButton{glyph:"⌫";onClicked:remove()}
+                            Item{Layout.fillWidth:true}TinyButton{iconName:"copy";onClicked:duplicate()}TinyButton{iconName:"trash";onClicked:remove()}
                         }
                     }
                 }
             }
         }
-        Rectangle{visible:!rightOpen;Layout.preferredWidth:42;Layout.fillHeight:true;color:win.panel;border.color:win.line;TinyButton{anchors.top:parent.top;anchors.horizontalCenter:parent.horizontalCenter;anchors.topMargin:9;glyph:"‹";onClicked:rightOpen=true}}
+        Rectangle{visible:!rightOpen;Layout.preferredWidth:42;Layout.fillHeight:true;color:win.panel;border.color:win.line;TinyButton{anchors.top:parent.top;anchors.horizontalCenter:parent.horizontalCenter;anchors.topMargin:9;iconName:"chevron-left";onClicked:rightOpen=true}}
     }
 }
