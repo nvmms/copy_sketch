@@ -926,11 +926,55 @@ ApplicationWindow {
                     }
                     Rectangle{visible:isSelected(item.index);anchors.fill:parent;color:"transparent";border.color:"#6657e8";border.width:1;z:20
                         Repeater{model:[{xx:-3,yy:-3},{xx:item.width-3,yy:-3},{xx:-3,yy:item.height-3},{xx:item.width-3,yy:item.height-3}];delegate:Rectangle{required property var modelData;x:modelData.xx;y:modelData.yy;width:7;height:7;radius:2;color:"white";border.color:"#6657e8"}}
-                        Rectangle{width:14;height:14;anchors.right:parent.right;anchors.bottom:parent.bottom;anchors.margins:-7;color:"transparent";z:30
-                            MouseArea{anchors.fill:parent;anchors.margins:-4;cursorShape:Qt.SizeFDiagCursor;property real sx;property real sy;property real ow;property real oh;property var resizeHistoryState:null;property bool resizeChanged:false
-                                onPressed:function(m){sx=m.x;sy=m.y;ow=item.sw;oh=item.sh;resizeHistoryState=snapshotState();resizeChanged=false}
-                                onPositionChanged:function(m){if(pressed){var nw=Math.round(Math.max(16,ow+(m.x-sx)/zoom));var nh=Math.round(Math.max(16,oh+(m.y-sy)/zoom));if(nw!==item.sw||nh!==item.sh)resizeChanged=true;layers.setProperty(item.index,"sw",nw);layers.setProperty(item.index,"sh",nh)}}
-                                onReleased:{if(resizeChanged&&resizeHistoryState)pushUndoState(resizeHistoryState);resizeHistoryState=null;resizeChanged=false}
+                        Repeater{
+                            model:[{hx:-1,hy:-1},{hx:0,hy:-1},{hx:1,hy:-1},{hx:-1,hy:0},{hx:1,hy:0},{hx:-1,hy:1},{hx:0,hy:1},{hx:1,hy:1}]
+                            delegate:Item{
+                                required property var modelData
+                                property bool horizontalEdge:modelData.hy===0
+                                property bool verticalEdge:modelData.hx===0
+                                x:modelData.hx<0?-6:(modelData.hx>0?item.width-6:8)
+                                y:modelData.hy<0?-6:(modelData.hy>0?item.height-6:8)
+                                width:verticalEdge?Math.max(0,item.width-16):12
+                                height:horizontalEdge?Math.max(0,item.height-16):12
+                                z:60
+                                MouseArea{
+                                    anchors.fill:parent;preventStealing:true;hoverEnabled:true
+                                    cursorShape:modelData.hx===0?Qt.SizeVerCursor:(modelData.hy===0?Qt.SizeHorCursor:(modelData.hx===modelData.hy?Qt.SizeFDiagCursor:Qt.SizeBDiagCursor))
+                                    readonly property string resizeCursor:modelData.hx===0?"ns-resize":(modelData.hy===0?"ew-resize":(modelData.hx===modelData.hy?"nwse-resize":"nesw-resize"))
+                                    onEntered:cursorController.enterResizeCursor(resizeCursor)
+                                    onExited:cursorController.leaveResizeCursor()
+                                    property real startX:0
+                                    property real startY:0
+                                    property real originalX:0
+                                    property real originalY:0
+                                    property real originalWidth:0
+                                    property real originalHeight:0
+                                    property var resizeHistoryState:null
+                                    property bool resizeChanged:false
+                                    onPressed:function(mouse){
+                                        var p=mapToItem(canvas,mouse.x,mouse.y)
+                                        startX=p.x;startY=p.y
+                                        originalX=item.px;originalY=item.py;originalWidth=item.sw;originalHeight=item.sh
+                                        resizeHistoryState=snapshotState();resizeChanged=false
+                                        mouse.accepted=true
+                                    }
+                                    onPositionChanged:function(mouse){
+                                        if(!pressed)return
+                                        var p=mapToItem(canvas,mouse.x,mouse.y)
+                                        var dx=(p.x-startX)/zoom
+                                        var dy=(p.y-startY)/zoom
+                                        var nx=originalX,ny=originalY,nw=originalWidth,nh=originalHeight
+                                        if(modelData.hx<0){nx=Math.min(originalX+dx,originalX+originalWidth-16);nw=originalWidth-(nx-originalX)}
+                                        else if(modelData.hx>0)nw=Math.max(16,originalWidth+dx)
+                                        if(modelData.hy<0){ny=Math.min(originalY+dy,originalY+originalHeight-16);nh=originalHeight-(ny-originalY)}
+                                        else if(modelData.hy>0)nh=Math.max(16,originalHeight+dy)
+                                        if(Math.abs(nx-item.px)>.01||Math.abs(ny-item.py)>.01||Math.abs(nw-item.sw)>.01||Math.abs(nh-item.sh)>.01)resizeChanged=true
+                                        layers.setProperty(item.index,"px",nx);layers.setProperty(item.index,"py",ny)
+                                        layers.setProperty(item.index,"sw",nw);layers.setProperty(item.index,"sh",nh)
+                                    }
+                                    onReleased:{if(resizeChanged&&resizeHistoryState){updateLayerBoard(item.index);pushUndoState(resizeHistoryState)}resizeHistoryState=null;resizeChanged=false}
+                                    onCanceled:{resizeHistoryState=null;resizeChanged=false}
+                                }
                             }
                         }
                         Repeater{

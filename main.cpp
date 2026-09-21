@@ -43,6 +43,40 @@ public:
         m_active = false;
     }
 
+    Q_INVOKABLE void enterResizeCursor(const QString &cssCursor)
+    {
+        Qt::CursorShape shape = Qt::ArrowCursor;
+        if (cssCursor == QStringLiteral("ew-resize"))
+            shape = Qt::SizeHorCursor;
+        else if (cssCursor == QStringLiteral("ns-resize"))
+            shape = Qt::SizeVerCursor;
+        else if (cssCursor == QStringLiteral("nesw-resize"))
+            shape = Qt::SizeBDiagCursor;
+        else if (cssCursor == QStringLiteral("nwse-resize"))
+            shape = Qt::SizeFDiagCursor;
+
+        const QCursor cursor(shape);
+        if (m_active)
+            QGuiApplication::changeOverrideCursor(cursor);
+        else {
+            QGuiApplication::setOverrideCursor(cursor);
+            m_active = true;
+        }
+    }
+
+    Q_INVOKABLE void leaveResizeCursor()
+    {
+        if (!m_active) {
+            enterArtboard();
+            return;
+        }
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+        QGuiApplication::changeOverrideCursor(invertedSystemArrowCursor());
+#else
+        QGuiApplication::changeOverrideCursor(QCursor(Qt::ArrowCursor));
+#endif
+    }
+
 private:
     bool isSystemPointerDark() const
     {
