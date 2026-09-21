@@ -46,7 +46,7 @@ ApplicationWindow {
     property real canvasPanOriginY: 0
     property bool canvasPanMoved: false
     property bool rightOpen: true
-    property int nextId: 8
+    property int nextId: 9
     property int nextGroupId: 1
     property int currentPage: 0
     property int nextPage: 3
@@ -65,6 +65,9 @@ ApplicationWindow {
     property bool restoringHistory: false
     property bool layerReordering:false
     property var frozenLayerOrder:({})
+    property var activeInlineEditor:null
+    property var activeLayerRename:null
+    property int layerTreeRevision:0
     property url currentFileUrl:""
     property bool documentModified:false
     property string documentName:currentFileUrl.toString().length?decodeURIComponent(currentFileUrl.toString().split("/").pop()):"Untitled design"
@@ -75,6 +78,8 @@ ApplicationWindow {
     property real drawY: 0
     property real drawWidth: 0
     property real drawHeight: 0
+    property int drawingParentBoardId: 0
+    readonly property string boardDebugBuild:"board-parenting-v7"
     readonly property string selectedType: selected>=0 && selected<layers.count ? layers.get(selected).type : ""
 
     function rulerMajorStep() {
@@ -113,6 +118,8 @@ ApplicationWindow {
         layers.setProperty(selected,"cornerBL",v);layers.setProperty(selected,"cornerBR",v)
     }
     function selectOnly(index) {
+        if(activeLayerRename)activeLayerRename.finishRenaming(true)
+        if(activeInlineEditor&&activeInlineEditor.index!==index)activeInlineEditor.finishInlineEditing(false)
         selected=index
         selection=index>=0?[index]:[]
         if(index>=0)layerSelectionAnchor=index
@@ -192,6 +199,8 @@ ApplicationWindow {
         recordHistory();layers.setProperty(index,"name",trimmed)
     }
     function selectLayerFromList(index, modifiers) {
+        if(activeLayerRename&&activeLayerRename.index!==index)activeLayerRename.finishRenaming(true)
+        if(activeInlineEditor&&activeInlineEditor.index!==index)activeInlineEditor.finishInlineEditing(false)
         var useControl=(modifiers&Qt.ControlModifier)!==0
         var useShift=(modifiers&Qt.ShiftModifier)!==0
         if(useShift&&layerSelectionAnchor>=0) {
@@ -216,6 +225,8 @@ ApplicationWindow {
     }
     function selectLayerOrGroup(index) {
         if(index<0||index>=layers.count)return
+        if(activeLayerRename&&activeLayerRename.index!==index)activeLayerRename.finishRenaming(true)
+        if(activeInlineEditor&&activeInlineEditor.index!==index)activeInlineEditor.finishInlineEditing(false)
         var group=layers.get(index).groupId||0
         if(!group){selectOnly(index);return}
         var picked=[]
@@ -256,27 +267,96 @@ ApplicationWindow {
         selected=picked.length?picked[picked.length-1]:-1
     }
     function finishMarquee() { marqueeActive=false }
-    function isShapeTool(kind) { return kind==="rect" || kind==="ellipse" || kind==="text" || kind==="frame" }
+    function isShapeTool(kind) { return kind==="rect" || kind==="ellipse" || kind==="text" || kind==="board" }
+    function boardIndexById(boardId) {
+        if(!boardId)return -1
+        for(var i=0;i<layers.count;i++)if(layers.get(i).shapeId===boardId&&layers.get(i).type==="board")return i
+        return -1
+    }
+    function containingBoardId(x,y,width,height,ignoredShapeId) {
+        var result=0
+        for(var i=0;i<layers.count;i++){
+            var candidate=layers.get(i)
+            if(candidate.type!=="board"||candidate.shapeId===ignoredShapeId)continue
+            if(x>=candidate.px&&y>=candidate.py&&x+width<=candidate.px+candidate.sw&&y+height<=candidate.py+candidate.sh)result=candidate.shapeId
+        }
+        return result
+    }
+    function boardIdAtPoint(x,y) {
+        var result=0
+        for(var i=0;i<layers.count;i++){
+            var candidate=layers.get(i)
+            if(candidate.type==="board"){
+                var hit=candidate.shown&&x>=candidate.px&&x<=candidate.px+candidate.sw&&y>=candidate.py&&y<=candidate.py+candidate.sh
+                console.info("[board-parent] candidate",candidate.name,"id=",candidate.shapeId,"bounds=",candidate.px,candidate.py,candidate.sw,candidate.sh,"point=",x,y,"hit=",hit)
+                if(hit)result=candidate.shapeId
+            }
+        }
+        return result
+    }
+    function boardIdOverlappingRect(x,y,width,height) {
+        var result=0
+        var largestOverlap=0
+        for(var i=0;i<layers.count;i++){
+            var candidate=layers.get(i)
+            if(candidate.type!=="board"||!candidate.shown)continue
+            var overlapWidth=Math.max(0,Math.min(x+width,candidate.px+candidate.sw)-Math.max(x,candidate.px))
+            var overlapHeight=Math.max(0,Math.min(y+height,candidate.py+candidate.sh)-Math.max(y,candidate.py))
+            var overlapArea=overlapWidth*overlapHeight
+            console.info("[board-parent] overlap candidate",candidate.name,"id=",candidate.shapeId,"area=",overlapArea,"rect=",x,y,width,height)
+            if(overlapArea>largestOverlap){largestOverlap=overlapArea;result=candidate.shapeId}
+        }
+        return result
+    }
+    function isLayerTreeVisible(index) {
+        var revision=layerTreeRevision
+        if(index<0||index>=layers.count)return false
+        var parentId=layers.get(index).parentBoardId||0
+        if(!parentId)return true
+        var parentIndex=boardIndexById(parentId)
+        return parentIndex<0||!layers.get(parentIndex).collapsed
+    }
+    function toggleBoardCollapsed(index) {
+        if(index<0||index>=layers.count||layers.get(index).type!=="board")return
+        layers.setProperty(index,"collapsed",!layers.get(index).collapsed)
+        layerTreeRevision++
+    }
     function syncWorkspaceCursor() {
         if(!workspaceHover.hovered || isShapeTool(tool)) cursorController.leaveArtboard()
         else cursorController.enterArtboard()
     }
     onToolChanged:syncWorkspaceCursor()
-    function appendShape(kind, x, y, width, height) {
+    function appendShape(kind, x, y, width, height, requestedParentBoardId) {
         recordHistory()
         var n = nextId++
+        var parentId=kind==="board"?0:requestedParentBoardId
+        console.info("[board-parent] append",kind,"id=",n,"rect=",x,y,width,height,"requestedParent=",requestedParentBoardId,"resolvedParent=",parentId)
         var o = {shapeId:n, type:kind, name:"Rectangle", px:x, py:y,
             sw:width, sh:height, fillColor:"#6c5ce7", strokeColor:"#ffffff", strokeSize:0,
             corner:16, cornerTL:16, cornerTR:16, cornerBL:16, cornerBR:16,
             fontSize:16, fontFamily:"Arial", fontWeight:Font.Normal, letterSpacing:0, lineHeight:20, textAlign:Text.AlignLeft, groupId:0,
-            alpha:1, shown:true, locked:false, copy:""}
+            alpha:1, shown:true, locked:false, copy:"", parentBoardId:parentId, collapsed:false}
         if (kind === "ellipse") { o.name="Ellipse"; o.fillColor="#ff6b9d"; o.corner=Math.min(width,height)/2;o.cornerTL=o.corner;o.cornerTR=o.corner;o.cornerBL=o.corner;o.cornerBR=o.corner }
         else if (kind === "text") { o.name="Heading"; o.fillColor="#18171d"; o.copy="New headline"; o.corner=0;o.cornerTL=0;o.cornerTR=0;o.cornerBL=0;o.cornerBR=0 }
-        else if (kind === "frame") { o.name="Frame "+n; o.fillColor="#ffffff"; o.corner=12;o.cornerTL=12;o.cornerTR=12;o.cornerBL=12;o.cornerBR=12 }
-        layers.append(o); selectOnly(layers.count-1)
+        else if (kind === "board") { o.name="Board "+n; o.fillColor="#ffffff"; o.corner=12;o.cornerTL=12;o.cornerTR=12;o.cornerBL=12;o.cornerBR=12 }
+        layers.append(o)
+        var insertedIndex=layers.count-1
+        if(parentId){
+            var parentIndex=boardIndexById(parentId)
+            if(parentIndex>=0){
+                insertedIndex=parentIndex+1
+                while(insertedIndex<layers.count-1&&(layers.get(insertedIndex).parentBoardId||0)===parentId)insertedIndex++
+                if(insertedIndex!==layers.count-1)layers.move(layers.count-1,insertedIndex,1)
+            }
+        }
+        console.info("[board-parent] inserted id=",n,"index=",insertedIndex,"parentBoardId=",layers.get(insertedIndex).parentBoardId,"modelCount=",layers.count)
+        selectOnly(insertedIndex)
     }
     function beginDrawing(x, y) {
         drawStartX=(x-artboard.x)/zoom;drawStartY=(y-artboard.y)/zoom;drawX=drawStartX;drawY=drawStartY
+        var hitBoardId=tool==="board"?0:boardIdAtPoint(drawStartX,drawStartY)
+        drawingParentBoardId=0
+        console.info("[board-parent] begin build=",boardDebugBuild,"tool=",tool,"workspacePoint=",x,y,"logicalPoint=",drawStartX,drawStartY,"startHitBoard=",hitBoardId)
         drawWidth=0;drawHeight=0;drawingShape=true;selectOnly(-1)
     }
     function updateDrawing(x, y, modifiers) {
@@ -299,7 +379,10 @@ ApplicationWindow {
         if(!drawingShape) return
         drawingShape=false
         if(drawWidth*zoom<3 || drawHeight*zoom<3) return
-        appendShape(tool,drawX,drawY,drawWidth,drawHeight)
+        drawingParentBoardId=tool==="board"?0:boardIdOverlappingRect(drawX,drawY,drawWidth,drawHeight)
+        console.info("[board-parent] finish build=",boardDebugBuild,"rect=",drawX,drawY,drawWidth,drawHeight,"chosenParent=",drawingParentBoardId)
+        appendShape(tool,drawX,drawY,drawWidth,drawHeight,drawingParentBoardId)
+        drawingParentBoardId=0
     }
     function duplicate() {
         if (selected<0) return
@@ -308,25 +391,30 @@ ApplicationWindow {
         layers.append({shapeId:nextId++,type:s.type,name:s.name+" copy",px:s.px+18,py:s.py+18,sw:s.sw,sh:s.sh,
             fillColor:s.fillColor,strokeColor:s.strokeColor,strokeSize:s.strokeSize,corner:s.corner,cornerTL:s.cornerTL,cornerTR:s.cornerTR,cornerBL:s.cornerBL,cornerBR:s.cornerBR,
             fontSize:s.fontSize,fontFamily:s.fontFamily,fontWeight:s.fontWeight,letterSpacing:s.letterSpacing,lineHeight:s.lineHeight,textAlign:s.textAlign,groupId:s.groupId||0,
-            alpha:s.alpha,shown:s.shown,locked:false,copy:s.copy})
+            alpha:s.alpha,shown:s.shown,locked:false,copy:s.copy,parentBoardId:s.parentBoardId||0,collapsed:s.collapsed||false})
         selectOnly(layers.count-1)
     }
     function remove() {
         if(!selection.length) return
         recordHistory()
-        var targets=selection.slice().sort(function(a,b){return b-a})
-        for(var i=0;i<targets.length;i++) if(targets[i]>=0&&targets[i]<layers.count) layers.remove(targets[i])
+        var targets=selection.slice()
+        var removedBoardIds=[]
+        for(var i=0;i<targets.length;i++)if(layers.get(targets[i]).type==="board")removedBoardIds.push(layers.get(targets[i]).shapeId)
+        for(var j=0;j<layers.count;j++)if(removedBoardIds.indexOf(layers.get(j).parentBoardId||0)>=0&&targets.indexOf(j)<0)targets.push(j)
+        targets.sort(function(a,b){return b-a})
+        for(var k=0;k<targets.length;k++) if(targets[k]>=0&&targets[k]<layers.count) layers.remove(targets[k])
         selectOnly(Math.min(targets[targets.length-1],layers.count-1))
     }
     function layerData(s) {
-        return {shapeId:s.shapeId,type:s.type,name:s.name,px:s.px,py:s.py,sw:s.sw,sh:s.sh,
+        return {shapeId:s.shapeId,type:s.type==="frame"?"board":s.type,name:s.name,px:s.px,py:s.py,sw:s.sw,sh:s.sh,
             fillColor:s.fillColor,strokeColor:s.strokeColor,strokeSize:s.strokeSize,corner:s.corner,
             cornerTL:s.cornerTL===undefined?s.corner:s.cornerTL,cornerTR:s.cornerTR===undefined?s.corner:s.cornerTR,
             cornerBL:s.cornerBL===undefined?s.corner:s.cornerBL,cornerBR:s.cornerBR===undefined?s.corner:s.cornerBR,
             fontSize:s.fontSize===undefined?16:s.fontSize,fontFamily:s.fontFamily===undefined?"Arial":s.fontFamily,
             fontWeight:s.fontWeight===undefined?Font.Normal:s.fontWeight,letterSpacing:s.letterSpacing===undefined?0:s.letterSpacing,
             lineHeight:s.lineHeight===undefined?20:s.lineHeight,textAlign:s.textAlign===undefined?Text.AlignLeft:s.textAlign,groupId:s.groupId||0,
-            alpha:s.alpha,shown:s.shown,locked:s.locked,copy:s.copy}
+            alpha:s.alpha,shown:s.shown,locked:s.locked,copy:s.copy,
+            parentBoardId:s.parentBoardId||0,collapsed:s.collapsed||false}
     }
     function snapshotLayers() {
         var result=[]
@@ -385,6 +473,17 @@ ApplicationWindow {
     function setLayerShown(index, shown) {
         if(index<0 || index>=layers.count || layers.get(index).shown===shown) return
         recordHistory();layers.setProperty(index,"shown",shown)
+    }
+    function layerIsEffectivelyShown(index) {
+        if(index<0||index>=layers.count||!layers.get(index).shown)return false
+        var parentIndex=boardIndexById(layers.get(index).parentBoardId||0)
+        return parentIndex<0||layers.get(parentIndex).shown
+    }
+    function updateLayerBoard(index) {
+        if(index<0||index>=layers.count)return
+        var layer=layers.get(index)
+        if(layer.type==="board")return
+        layers.setProperty(index,"parentBoardId",containingBoardId(layer.px,layer.py,layer.sw,layer.sh,layer.shapeId))
     }
     function saveCurrentPage() {
         if(currentPage>=0 && currentPage<pages.count) pageDocuments[currentPage]=snapshotLayers()
@@ -479,7 +578,7 @@ ApplicationWindow {
     Shortcut { sequence:"R"; onActivated: tool="rect" }
     Shortcut { sequence:"O"; onActivated: tool="ellipse" }
     Shortcut { sequence:"T"; onActivated: tool="text" }
-    Shortcut { sequence:"F"; onActivated: tool="frame" }
+    Shortcut { sequence:"F"; onActivated: tool="board" }
     Shortcut { sequence:"Escape"; onActivated:{drawingShape=false;tool="select"} }
     Shortcut { sequence:"Ctrl+-"; onActivated: zoom=Math.max(.25,zoom-.1) }
     Shortcut { sequence:"Ctrl++"; onActivated: zoom=Math.min(2,zoom+.1) }
@@ -487,13 +586,14 @@ ApplicationWindow {
     ListModel {
         id: layers
         dynamicRoles:true
-        ListElement { shapeId:1; type:"rect"; name:"Primary card"; px:126; py:108; sw:370; sh:250; fillColor:"#ffffff"; strokeColor:"#e9e8ef"; strokeSize:1; corner:24; cornerTL:24; cornerTR:24; cornerBL:24; cornerBR:24; fontSize:16; fontFamily:"Arial"; fontWeight:400; letterSpacing:0; lineHeight:20; textAlign:1; alpha:1; shown:true; locked:false; copy:"" }
-        ListElement { shapeId:2; type:"text"; name:"Design freely"; px:164; py:146; sw:290; sh:56; fillColor:"#18171d"; strokeColor:"#000000"; strokeSize:0; corner:0; cornerTL:0; cornerTR:0; cornerBL:0; cornerBR:0; fontSize:36; fontFamily:"Arial"; fontWeight:700; letterSpacing:0; lineHeight:44; textAlign:1; alpha:1; shown:true; locked:false; copy:"Design freely" }
-        ListElement { shapeId:3; type:"text"; name:"Subtitle"; px:165; py:214; sw:280; sh:46; fillColor:"#777681"; strokeColor:"#000000"; strokeSize:0; corner:0; cornerTL:0; cornerTR:0; cornerBL:0; cornerBR:0; fontSize:16; fontFamily:"Arial"; fontWeight:400; letterSpacing:0; lineHeight:22; textAlign:1; alpha:1; shown:true; locked:false; copy:"Create interfaces that feel alive." }
-        ListElement { shapeId:4; type:"rect"; name:"Action button"; px:165; py:286; sw:142; sh:44; fillColor:"#6c5ce7"; strokeColor:"#000000"; strokeSize:0; corner:12; cornerTL:12; cornerTR:12; cornerBL:12; cornerBR:12; fontSize:16; fontFamily:"Arial"; fontWeight:400; letterSpacing:0; lineHeight:20; textAlign:1; alpha:1; shown:true; locked:false; copy:"" }
-        ListElement { shapeId:5; type:"text"; name:"Button label"; px:186; py:297; sw:108; sh:25; fillColor:"#ffffff"; strokeColor:"#000000"; strokeSize:0; corner:0; cornerTL:0; cornerTR:0; cornerBL:0; cornerBR:0; fontSize:14; fontFamily:"Arial"; fontWeight:600; letterSpacing:0; lineHeight:18; textAlign:1; alpha:1; shown:true; locked:false; copy:"Get started  →" }
-        ListElement { shapeId:6; type:"ellipse"; name:"Orb"; px:560; py:140; sw:224; sh:224; fillColor:"#fd79a8"; strokeColor:"#ffffff"; strokeSize:0; corner:112; cornerTL:112; cornerTR:112; cornerBL:112; cornerBR:112; fontSize:16; fontFamily:"Arial"; fontWeight:400; letterSpacing:0; lineHeight:20; textAlign:1; alpha:.92; shown:true; locked:false; copy:"" }
-        ListElement { shapeId:7; type:"ellipse"; name:"Orb highlight"; px:612; py:178; sw:78; sh:78; fillColor:"#ffd6e6"; strokeColor:"#ffffff"; strokeSize:0; corner:39; cornerTL:39; cornerTR:39; cornerBL:39; cornerBR:39; fontSize:16; fontFamily:"Arial"; fontWeight:400; letterSpacing:0; lineHeight:20; textAlign:1; alpha:.78; shown:true; locked:false; copy:"" }
+        ListElement { shapeId:8; type:"board"; name:"Landing board"; px:0; py:0; sw:920; sh:580; fillColor:"#f6f5f8"; strokeColor:"#babac2"; strokeSize:1; corner:0; cornerTL:0; cornerTR:0; cornerBL:0; cornerBR:0; fontSize:16; fontFamily:"Arial"; fontWeight:400; letterSpacing:0; lineHeight:20; textAlign:1; alpha:1; shown:true; locked:false; copy:""; parentBoardId:0; collapsed:false }
+        ListElement { shapeId:1; type:"rect"; name:"Primary card"; px:126; py:108; sw:370; sh:250; fillColor:"#ffffff"; strokeColor:"#e9e8ef"; strokeSize:1; corner:24; cornerTL:24; cornerTR:24; cornerBL:24; cornerBR:24; fontSize:16; fontFamily:"Arial"; fontWeight:400; letterSpacing:0; lineHeight:20; textAlign:1; alpha:1; shown:true; locked:false; copy:""; parentBoardId:8; collapsed:false }
+        ListElement { shapeId:2; type:"text"; name:"Design freely"; px:164; py:146; sw:290; sh:56; fillColor:"#18171d"; strokeColor:"#000000"; strokeSize:0; corner:0; cornerTL:0; cornerTR:0; cornerBL:0; cornerBR:0; fontSize:36; fontFamily:"Arial"; fontWeight:700; letterSpacing:0; lineHeight:44; textAlign:1; alpha:1; shown:true; locked:false; copy:"Design freely"; parentBoardId:8; collapsed:false }
+        ListElement { shapeId:3; type:"text"; name:"Subtitle"; px:165; py:214; sw:280; sh:46; fillColor:"#777681"; strokeColor:"#000000"; strokeSize:0; corner:0; cornerTL:0; cornerTR:0; cornerBL:0; cornerBR:0; fontSize:16; fontFamily:"Arial"; fontWeight:400; letterSpacing:0; lineHeight:22; textAlign:1; alpha:1; shown:true; locked:false; copy:"Create interfaces that feel alive."; parentBoardId:8; collapsed:false }
+        ListElement { shapeId:4; type:"rect"; name:"Action button"; px:165; py:286; sw:142; sh:44; fillColor:"#6c5ce7"; strokeColor:"#000000"; strokeSize:0; corner:12; cornerTL:12; cornerTR:12; cornerBL:12; cornerBR:12; fontSize:16; fontFamily:"Arial"; fontWeight:400; letterSpacing:0; lineHeight:20; textAlign:1; alpha:1; shown:true; locked:false; copy:""; parentBoardId:8; collapsed:false }
+        ListElement { shapeId:5; type:"text"; name:"Button label"; px:186; py:297; sw:108; sh:25; fillColor:"#ffffff"; strokeColor:"#000000"; strokeSize:0; corner:0; cornerTL:0; cornerTR:0; cornerBL:0; cornerBR:0; fontSize:14; fontFamily:"Arial"; fontWeight:600; letterSpacing:0; lineHeight:18; textAlign:1; alpha:1; shown:true; locked:false; copy:"Get started  →"; parentBoardId:8; collapsed:false }
+        ListElement { shapeId:6; type:"ellipse"; name:"Orb"; px:560; py:140; sw:224; sh:224; fillColor:"#fd79a8"; strokeColor:"#ffffff"; strokeSize:0; corner:112; cornerTL:112; cornerTR:112; cornerBL:112; cornerBR:112; fontSize:16; fontFamily:"Arial"; fontWeight:400; letterSpacing:0; lineHeight:20; textAlign:1; alpha:.92; shown:true; locked:false; copy:""; parentBoardId:8; collapsed:false }
+        ListElement { shapeId:7; type:"ellipse"; name:"Orb highlight"; px:612; py:178; sw:78; sh:78; fillColor:"#ffd6e6"; strokeColor:"#ffffff"; strokeSize:0; corner:39; cornerTL:39; cornerTR:39; cornerBL:39; cornerBR:39; fontSize:16; fontFamily:"Arial"; fontWeight:400; letterSpacing:0; lineHeight:20; textAlign:1; alpha:.78; shown:true; locked:false; copy:""; parentBoardId:8; collapsed:false }
     }
     ListModel {
         id: pages
@@ -575,7 +675,7 @@ ApplicationWindow {
         }
         Divider{x:251;anchors.top:parent.top;anchors.bottom:parent.bottom;anchors.topMargin:8;anchors.bottomMargin:8}
         RowLayout{anchors.centerIn:parent;spacing:4
-                ToolButton{glyph:"↖";key:"select"} ToolButton{glyph:"F";key:"frame"} ToolButton{glyph:"□";key:"rect"}
+                ToolButton{glyph:"↖";key:"select"} ToolButton{glyph:"▣";key:"board"} ToolButton{glyph:"□";key:"rect"}
                 ToolButton{glyph:"○";key:"ellipse"} ToolButton{glyph:"T";key:"text"} ToolButton{glyph:"✎";key:"pen"}
         }
         RowLayout{anchors.right:parent.right;anchors.rightMargin:12;anchors.verticalCenter:parent.verticalCenter;spacing:6
@@ -621,35 +721,55 @@ ApplicationWindow {
                 }
                 Divider{Layout.fillWidth:true}
                 RowLayout{Layout.fillWidth:true;Layout.preferredHeight:42;Layout.leftMargin:14;Layout.rightMargin:10
-                    Text{text:"Layers";color:win.ink;font.pixelSize:12;font.weight:Font.DemiBold}Item{Layout.fillWidth:true}TinyButton{glyph:"+";onClicked:tool="rect"}}
+                    Text{text:"Canvas";color:win.ink;font.pixelSize:12;font.weight:Font.DemiBold}Item{Layout.fillWidth:true}TinyButton{glyph:"+";onClicked:tool="rect"}}
                 Divider{Layout.fillWidth:true}
-                ScrollView{id:layersScroll;Layout.fillWidth:true;Layout.fillHeight:true;clip:true
-                    Item{width:layersScroll.availableWidth;height:Math.max(layersColumn.implicitHeight,layersScroll.availableHeight)
+                ScrollView{
+                    id:layersScroll
+                    Layout.fillWidth:true;Layout.fillHeight:true;clip:true
+                    contentWidth:availableWidth
+                    contentHeight:Math.max(layersColumn.implicitHeight,availableHeight)
+                    ScrollBar.horizontal.policy:ScrollBar.AlwaysOff
+                    ScrollBar.vertical.policy:ScrollBar.AsNeeded
+                    ScrollBar.vertical.interactive:true
+                    Item{width:layersScroll.availableWidth;height:layersScroll.contentHeight
                         MouseArea{anchors.fill:parent;onClicked:win.selectOnly(-1)}
                         Column{id:layersColumn;width:parent.width;topPadding:8
                             move:Transition{enabled:!win.layerReordering;NumberAnimation{properties:"y";duration:90;easing.type:Easing.OutCubic}}
                             Repeater{model:layers;delegate:Rectangle{
                                 id:layerRow
-                                required property int index;required property string name;required property string type;required property bool shown;required property bool locked
+                                required property int index;required property string name;required property string type;required property bool shown;required property bool locked;required property int parentBoardId;required property bool collapsed
                                 property bool renaming:false
                                 property int rowGroupId:(layers.get(index).groupId||0)
                                 property real dragOriginY:0
                                 property real dragAbsoluteY:0
                                 property var dragHistoryState:null
                                 property bool dragChanged:false
-                                width:parent.width;height:38;radius:6;color:win.isSelected(index)?win.selectedSurface:(hover.containsMouse?win.hoverSurface:"transparent")
+                                property bool treeVisible:win.isLayerTreeVisible(index)
+                                function beginRenaming(){
+                                    if(win.activeLayerRename&&win.activeLayerRename!==layerRow)win.activeLayerRename.finishRenaming(true)
+                                    renaming=true;win.activeLayerRename=layerRow
+                                }
+                                function finishRenaming(commit){
+                                    if(!renaming)return
+                                    if(commit)win.renameLayer(index,renameField.text)
+                                    renaming=false
+                                    if(win.activeLayerRename===layerRow)win.activeLayerRename=null
+                                }
+                                width:parent.width;height:treeVisible?38:0;visible:height>0;clip:true;radius:6;color:win.isSelected(index)?win.selectedSurface:(hover.containsMouse?win.hoverSurface:"transparent")
                                 opacity:hover.dragging ? 0.72 : 1;z:hover.dragging?100:0
                                 border.color:hover.dragging?win.accent:"transparent";border.width:hover.dragging?1:0
                                 transform:Translate{y:hover.dragging?layerRow.dragAbsoluteY-layerRow.y:0}
                                 Rectangle{visible:win.isSelected(index);width:2;height:22;radius:1;color:win.accent;anchors.left:parent.left;anchors.verticalCenter:parent.verticalCenter}
-                                RowLayout{anchors.fill:parent;anchors.leftMargin:10;anchors.rightMargin:8;spacing:8
-                                    Text{text:type==="text"?"T":(type==="ellipse"?"○":type==="frame"?"#":"□");color:win.isSelected(index)?win.accent:win.muted;font.pixelSize:12;Layout.preferredWidth:18;horizontalAlignment:Text.AlignHCenter}
-                                    Text{visible:!layerRow.renaming;text:name;color:win.isSelected(index)?win.ink:win.subtleInk;font.pixelSize:12;elide:Text.ElideRight;Layout.fillWidth:true}
+                                RowLayout{anchors.fill:parent;anchors.leftMargin:parentBoardId?30:10;anchors.rightMargin:8;spacing:8
+                                    Text{visible:type==="board";text:collapsed?"▸":"▾";color:win.muted;font.pixelSize:12;Layout.preferredWidth:10
+                                        MouseArea{anchors.fill:parent;anchors.margins:-6;onClicked:function(mouse){mouse.accepted=true;win.toggleBoardCollapsed(index)}}}
+                                    Text{text:type==="text"?"T":(type==="ellipse"?"○":type==="board"?"▣":"□");color:win.isSelected(index)?win.accent:win.muted;font.pixelSize:12;Layout.preferredWidth:18;horizontalAlignment:Text.AlignHCenter}
+                                    Text{visible:!layerRow.renaming;text:name;color:win.isSelected(index)?win.ink:win.subtleInk;font.pixelSize:12;font.weight:type==="board"?Font.DemiBold:Font.Normal;elide:Text.ElideRight;Layout.fillWidth:true}
                                     TextField{id:renameField;visible:layerRow.renaming;Layout.fillWidth:true;implicitHeight:28;text:layerRow.name;selectByMouse:true
                                         onVisibleChanged:if(visible){forceActiveFocus();selectAll()}
-                                        onAccepted:{win.renameLayer(layerRow.index,text);layerRow.renaming=false}
-                                        onActiveFocusChanged:if(layerRow.renaming&&!activeFocus){win.renameLayer(layerRow.index,text);layerRow.renaming=false}
-                                        Keys.onEscapePressed:function(event){layerRow.renaming=false;event.accepted=true}
+                                        onAccepted:layerRow.finishRenaming(true)
+                                        onActiveFocusChanged:if(layerRow.renaming&&!activeFocus)layerRow.finishRenaming(true)
+                                        Keys.onEscapePressed:function(event){layerRow.finishRenaming(false);event.accepted=true}
                                     }
                                     Text{visible:layerRow.rowGroupId>0;text:"⌘";color:win.accent;font.pixelSize:10}
                                     Text{visible:locked;text:"⌑";color:win.muted;font.pixelSize:11}
@@ -687,7 +807,7 @@ ApplicationWindow {
                                     }
                                     onCanceled:{if(dragging)win.finishLayerReorder();layerRow.dragHistoryState=null;layerRow.dragChanged=false;dragging=false}
                                     onClicked:function(mouse){if(suppressClick){suppressClick=false;return}win.selectLayerFromList(index,mouse.modifiers)}
-                                    onDoubleClicked:{win.selectOnly(index);layerRow.renaming=true}
+                                    onDoubleClicked:{win.selectOnly(index);layerRow.beginRenaming()}
                                 }
                             }}
                         }
@@ -739,6 +859,7 @@ ApplicationWindow {
                         if(type!=="text" || locked)return
                         if(!isSelected(index))selectOnly(index)
                         inlineHistoryState=snapshotState();inlineOriginalText=copy;inlineEditing=true
+                        win.activeInlineEditor=item
                         inlineEditor.text=copy;inlineEditor.forceActiveFocus();inlineEditor.selectAll()
                     }
                     function finishInlineEditing(cancel){
@@ -746,10 +867,11 @@ ApplicationWindow {
                         if(cancel)layers.setProperty(index,"copy",inlineOriginalText)
                         else if(inlineEditor.text!==inlineOriginalText&&inlineHistoryState)pushUndoState(inlineHistoryState)
                         inlineHistoryState=null;inlineEditor.focus=false;inlineEditing=false
+                        if(win.activeInlineEditor===item)win.activeInlineEditor=null
                     }
                     Connections{target:win;function onSelectionChanged(){if(item.inlineEditing&&!win.isSelected(item.index))item.finishInlineEditing(false)}}
-                    x:px*zoom;y:py*zoom;width:sw*zoom;height:sh*zoom;visible:shown;opacity:alpha;z:win.renderedLayerZ(shapeId,index)
-                    Rectangle{anchors.fill:parent;color:item.type==="text"?"transparent":item.fillColor;border.color:item.strokeSize>0?item.strokeColor:"transparent";border.width:item.strokeSize*zoom;radius:item.type==="ellipse"?Math.min(width,height)/2:(item.type==="frame"?item.corner*zoom:0);topLeftRadius:item.type==="rect"?item.cornerTL*zoom:radius;topRightRadius:item.type==="rect"?item.cornerTR*zoom:radius;bottomLeftRadius:item.type==="rect"?item.cornerBL*zoom:radius;bottomRightRadius:item.type==="rect"?item.cornerBR*zoom:radius}
+                    x:px*zoom;y:py*zoom;width:sw*zoom;height:sh*zoom;visible:win.layerIsEffectivelyShown(index);opacity:alpha;z:win.renderedLayerZ(shapeId,index)
+                    Rectangle{anchors.fill:parent;color:item.type==="text"?"transparent":item.fillColor;border.color:item.strokeSize>0?item.strokeColor:"transparent";border.width:item.strokeSize*zoom;radius:item.type==="ellipse"?Math.min(width,height)/2:(item.type==="board"?item.corner*zoom:0);topLeftRadius:item.type==="rect"?item.cornerTL*zoom:radius;topRightRadius:item.type==="rect"?item.cornerTR*zoom:radius;bottomLeftRadius:item.type==="rect"?item.cornerBL*zoom:radius;bottomRightRadius:item.type==="rect"?item.cornerBR*zoom:radius}
                     Text{visible:item.type==="text"&&!item.inlineEditing;anchors.fill:parent;text:item.copy;color:item.fillColor;font.family:item.fontFamily;font.pixelSize:item.fontSize*zoom;font.weight:item.fontWeight;font.letterSpacing:item.letterSpacing*zoom;lineHeight:item.lineHeight*zoom;lineHeightMode:Text.FixedHeight;horizontalAlignment:item.textAlign;verticalAlignment:Text.AlignVCenter;wrapMode:Text.Wrap;style:item.strokeSize>0?Text.Outline:Text.Normal;styleColor:item.strokeColor}
                     MouseArea{
                         anchors.fill:parent;enabled:!item.locked&&!item.inlineEditing;hoverEnabled:true
@@ -771,6 +893,7 @@ ApplicationWindow {
                                 if(layerIndex>=0&&layerIndex<layers.count){
                                     var layer=layers.get(layerIndex)
                                     origins.push({index:layerIndex,x:layer.px,y:layer.py})
+                                    if(layer.type==="board")for(var childIndex=0;childIndex<layers.count;childIndex++)if((layers.get(childIndex).parentBoardId||0)===layer.shapeId&&selection.indexOf(childIndex)<0){var child=layers.get(childIndex);origins.push({index:childIndex,x:child.px,y:child.py})}
                                 }
                             }
                             dragOrigins=origins
@@ -787,7 +910,7 @@ ApplicationWindow {
                                 layers.setProperty(origin.index,"py",origin.y+dy)
                             }
                         }
-                        onReleased:{if(dragChanged&&dragHistoryState)pushUndoState(dragHistoryState);dragOrigins=[];dragHistoryState=null;dragChanged=false}
+                        onReleased:{if(dragChanged&&dragHistoryState){for(var i=0;i<selection.length;i++)updateLayerBoard(selection[i]);pushUndoState(dragHistoryState)}dragOrigins=[];dragHistoryState=null;dragChanged=false}
                         onDoubleClicked:function(mouse){if(tool==="select"&&item.type==="text"){mouse.accepted=true;item.beginInlineEditing()}}
                     }
                     TextEdit{
@@ -849,7 +972,7 @@ ApplicationWindow {
             Rectangle{
                 visible:drawingShape;x:artboard.x+drawX*zoom;y:artboard.y+drawY*zoom;width:drawWidth*zoom;height:drawHeight*zoom;z:501
                 color:"#336c5ce7";border.color:win.accent;border.width:1
-                radius:tool==="ellipse"?Math.min(width,height)/2:(tool==="frame"?12*zoom:Math.min(6,Math.min(width,height)/2))
+                radius:tool==="ellipse"?Math.min(width,height)/2:(tool==="board"?12*zoom:Math.min(6,Math.min(width,height)/2))
             }
             Rectangle{
                 visible:marqueeActive;width:marqueeWidth;height:marqueeHeight;x:marqueeX;y:marqueeY
@@ -972,7 +1095,7 @@ ApplicationWindow {
                         }
                     }
                     Divider{Layout.fillWidth:true;visible:selected>=0}
-                    Section{heading:"Corners";visible:selectedType==="rect" || selectedType==="frame"
+                    Section{heading:"Corners";visible:selectedType==="rect" || selectedType==="board"
                         GridLayout{columns:2;columnSpacing:8;rowSpacing:8;Layout.fillWidth:true
                             NumBox{label:"⌜";number:value("cornerTL",0);onEdited:function(v){setValue("cornerTL",Math.max(0,v))}}
                             NumBox{label:"⌝";number:value("cornerTR",0);onEdited:function(v){setValue("cornerTR",Math.max(0,v))}}
@@ -981,7 +1104,7 @@ ApplicationWindow {
                         }
                         Button{text:"Set all corners";Layout.fillWidth:true;implicitHeight:30;onClicked:setAllCorners(value("cornerTL",0))}
                     }
-                    Divider{Layout.fillWidth:true;visible:selectedType==="rect" || selectedType==="frame"}
+                    Divider{Layout.fillWidth:true;visible:selectedType==="rect" || selectedType==="board"}
                     Section{heading:selectedType==="text"?"Text border":"Border";visible:selected>=0
                         RowLayout{Layout.fillWidth:true;spacing:8
                             Rectangle{width:28;height:28;radius:7;color:value("strokeColor","#fff");border.color:win.controlBorder}
