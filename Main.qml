@@ -929,7 +929,7 @@ ApplicationWindow {
                         Rectangle{width:14;height:14;anchors.right:parent.right;anchors.bottom:parent.bottom;anchors.margins:-7;color:"transparent";z:30
                             MouseArea{anchors.fill:parent;anchors.margins:-4;cursorShape:Qt.SizeFDiagCursor;property real sx;property real sy;property real ow;property real oh;property var resizeHistoryState:null;property bool resizeChanged:false
                                 onPressed:function(m){sx=m.x;sy=m.y;ow=item.sw;oh=item.sh;resizeHistoryState=snapshotState();resizeChanged=false}
-                                onPositionChanged:function(m){if(pressed){var nw=Math.round(Math.max(16,ow+(m.x-sx)/zoom));var nh=Math.round(Math.max(16,oh+(m.y-sy)/zoom));if(nw!==item.sw||nh!==item.sh)resizeChanged=true;layers.setProperty(index,"sw",nw);layers.setProperty(index,"sh",nh)}}
+                                onPositionChanged:function(m){if(pressed){var nw=Math.round(Math.max(16,ow+(m.x-sx)/zoom));var nh=Math.round(Math.max(16,oh+(m.y-sy)/zoom));if(nw!==item.sw||nh!==item.sh)resizeChanged=true;layers.setProperty(item.index,"sw",nw);layers.setProperty(item.index,"sh",nh)}}
                                 onReleased:{if(resizeChanged&&resizeHistoryState)pushUndoState(resizeHistoryState);resizeHistoryState=null;resizeChanged=false}
                             }
                         }
@@ -937,7 +937,7 @@ ApplicationWindow {
                             model:item.type==="rect"?[{hx:-1,hy:-1,role:"cornerTL"},{hx:1,hy:-1,role:"cornerTR"},{hx:-1,hy:1,role:"cornerBL"},{hx:1,hy:1,role:"cornerBR"}]:[]
                             delegate:Rectangle{
                                 required property var modelData
-                                property real cornerValue:layers.get(index)[modelData.role]
+                                property real cornerValue:modelData.role==="cornerTL"?item.cornerTL:(modelData.role==="cornerTR"?item.cornerTR:(modelData.role==="cornerBL"?item.cornerBL:item.cornerBR))
                                 property real inset:Math.max(13,Math.min(cornerValue*zoom,Math.min(item.width,item.height)/2-5))
                                 x:modelData.hx<0?inset-width/2:item.width-inset-width/2
                                 y:modelData.hy<0?inset-height/2:item.height-inset-height/2
@@ -954,7 +954,7 @@ ApplicationWindow {
                                         var dy=modelData.hy<0?p.y:item.height-p.y
                                         var radiusValue=Math.max(0,Math.min(Math.min(item.sw,item.sh)/2,(dx+dy)/(2*zoom)))
                                         if(Math.abs(radiusValue-cornerValue)>0.01)cornerChanged=true
-                                        layers.setProperty(index,modelData.role,radiusValue)
+                                        layers.setProperty(item.index,modelData.role,radiusValue)
                                     }
                                     onReleased:{if(cornerChanged&&cornerHistoryState)pushUndoState(cornerHistoryState);cornerHistoryState=null;cornerChanged=false}
                                 }
